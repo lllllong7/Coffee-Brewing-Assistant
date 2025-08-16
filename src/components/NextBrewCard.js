@@ -1,4 +1,5 @@
 import React from 'react';
+import { BREW_METHODS, calculateRatio } from '../services/aiSuggestions';
 
 const NextBrewCard = ({ suggestion, loading, onRefresh, isOffline }) => {
   if (loading) {
@@ -30,6 +31,9 @@ const NextBrewCard = ({ suggestion, loading, onRefresh, isOffline }) => {
     );
   }
 
+  const methodConfig = BREW_METHODS[suggestion.method];
+  const timeUnit = methodConfig?.timeUnit === 'minutes' ? 'min' : 's';
+
   return (
     <div className="card">
       <div className="flex justify-between items-start mb-4">
@@ -37,6 +41,9 @@ const NextBrewCard = ({ suggestion, loading, onRefresh, isOffline }) => {
           <h2 className="text-lg font-semibold text-coffee-900">
             Your Next Brew
           </h2>
+          <div className="text-sm text-coffee-600 mt-1">
+            {methodConfig?.name || suggestion.method}
+          </div>
           {isOffline && (
             <div className="text-xs text-amber-600 mt-1 flex items-center">
               <span className="mr-1">⚠️</span>
@@ -75,13 +82,39 @@ const NextBrewCard = ({ suggestion, loading, onRefresh, isOffline }) => {
           
           <div className="text-center">
             <div className="text-2xl font-bold text-coffee-700">
-              {suggestion.brewTime}s
+              {suggestion.brewTime}{timeUnit}
             </div>
             <div className="text-xs text-coffee-600 font-medium">
               Brew Time
             </div>
           </div>
         </div>
+
+        {/* Additional method-specific parameters */}
+        {(suggestion.waterTempC || suggestion.pressureBar) && (
+          <div className="grid grid-cols-2 gap-4">
+            {suggestion.waterTempC && (
+              <div className="text-center">
+                <div className="text-lg font-semibold text-coffee-700">
+                  {suggestion.waterTempC}°C
+                </div>
+                <div className="text-xs text-coffee-600 font-medium">
+                  Water Temp
+                </div>
+              </div>
+            )}
+            {suggestion.pressureBar && (
+              <div className="text-center">
+                <div className="text-lg font-semibold text-coffee-700">
+                  {suggestion.pressureBar} bar
+                </div>
+                <div className="text-xs text-coffee-600 font-medium">
+                  Pressure
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="bg-coffee-50 rounded-lg p-3">
           <div className="text-xs font-medium text-coffee-700 mb-1">Why:</div>

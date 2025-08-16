@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getBeans, getRecentBrews } from '../utils/storage';
-import { getSuggestion } from '../services/aiSuggestions';
+import { getBeans, getRecentBrews, migrateBrewData } from '../utils/storage';
+import { getSuggestion, migrateBrewMethod } from '../services/aiSuggestions';
 import NextBrewCard from './NextBrewCard';
 import AddBeanModal from './AddBeanModal';
 
@@ -23,24 +23,29 @@ const Home = () => {
       setLoading(true);
       setIsOffline(false);
       
+      // Migrate legacy data first
+      const migratedBrews = migrateBrewData();
+      
       // Get recent brews from the most active bean
       const beans = getBeans();
-      const recentBrews = getRecentBrews();
       
-      if (beans.length === 0 || recentBrews.length === 0) {
+      if (beans.length === 0 || migratedBrews.length === 0) {
         // No data yet, show default suggestion
-        const defaultSuggestion = await getSuggestion([], 'espresso');
+        const defaultSuggestion = await getSuggestion([], 'pourover');
         setSuggestion(defaultSuggestion);
         return;
       }
       
-      // Find the most recently used bean
-      const mostRecentBrew = recentBrews[0];
-      const beanBrews = recentBrews.filter(b => b.beanId === mostRecentBrew.beanId).slice(0, 5);
+      // Find the most recently used bean and method
+      const mostRecentBrew = migratedBrews[0];
+      const brewMethod = mostRecentBrew.method || migrateBrewMethod(mostRecentBrew.brewMethod || mostRecentBrew.coffeeType);
+      const beanBrews = migratedBrews
+        .filter(b => b.beanId === mostRecentBrew.beanId && 
+                    (b.method || migrateBrewMethod(b.brewMethod || b.coffeeType)) === brewMethod)
+        .slice(0, 5);
       
-      // Get suggestion for the most active bean
-      const coffeeType = mostRecentBrew.brewMethod || 'espresso';
-      const newSuggestion = await getSuggestion(beanBrews, coffeeType);
+      // Get suggestion for the most active bean and method
+      const newSuggestion = await getSuggestion(beanBrews, brewMethod);
       setSuggestion(newSuggestion);
       
     } catch (error) {
@@ -48,7 +53,7 @@ const Home = () => {
       setIsOffline(true);
       // Try fallback
       try {
-        const fallbackSuggestion = await getSuggestion([], 'espresso');
+        const fallbackSuggestion = await getSuggestion([], 'pourover');
         setSuggestion(fallbackSuggestion);
       } catch (fallbackError) {
         console.error('Fallback also failed:', fallbackError);

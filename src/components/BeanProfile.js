@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getBeans, getBrewsForBean, getBeanSuggestion, saveBeanSuggestion } from '../utils/storage';
-import { getSuggestion } from '../services/aiSuggestions';
+import { getBeans, getBrewsForBean, deleteBean, deleteBrew, getBeanSuggestion, migrateBrewData } from '../utils/storage';
+import { getSuggestion, migrateBrewMethod, BREW_METHODS } from '../services/aiSuggestions';
 import NextBrewCard from './NextBrewCard';
+import BrewForm from './BrewForm';
 
 const BeanProfile = () => {
   const { id } = useParams();
@@ -13,6 +14,7 @@ const BeanProfile = () => {
   const [suggestion, setSuggestion] = useState(null);
   const [suggestionLoading, setSuggestionLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
+  const [selectedMethod, setSelectedMethod] = useState('pourover');
 
   useEffect(() => {
     loadBeanData();
@@ -28,7 +30,16 @@ const BeanProfile = () => {
         return;
       }
 
-      const beanBrews = getBrewsForBean(id);
+      // Migrate legacy data first
+      const migratedBrews = migrateBrewData();
+      const beanBrews = migratedBrews.filter(brew => brew.beanId === id);
+      
+      // Determine the most recent method used
+      if (beanBrews.length > 0) {
+        const recentMethod = beanBrews[0].method || migrateBrewMethod(beanBrews[0].brewMethod || beanBrews[0].coffeeType);
+        setSelectedMethod(recentMethod);
+      }
+      
       setBean(currentBean);
       setBrews(beanBrews);
       
@@ -41,30 +52,30 @@ const BeanProfile = () => {
     }
   };
 
-  const loadBeanSuggestion = async (beanData, beanBrews) => {
+  const loadBeanSuggestion = async (beanData, beanBrews, method = selectedMethod) => {
     try {
       setSuggestionLoading(true);
       setIsOffline(false);
       
-      // Check if we have a cached suggestion
-      const cachedSuggestion = getBeanSuggestion(beanData.id);
+      // Check if we have a cached suggestion for this method
+      const cachedSuggestion = getBeanSuggestion(beanData.id, method);
       if (cachedSuggestion) {
         setSuggestion(cachedSuggestion);
         setSuggestionLoading(false);
       }
       
-      // Get fresh suggestion if we have brews
-      if (beanBrews.length > 0) {
-        const recentBrews = beanBrews.slice(0, 5);
-        const coffeeType = recentBrews[0]?.brewMethod || 'espresso';
-        const newSuggestion = await getSuggestion(recentBrews, coffeeType);
-        
-        // Save suggestion to bean
-        await saveBeanSuggestion(beanData.id, newSuggestion);
+      // Get fresh suggestion if we have brews for this method
+      const methodBrews = beanBrews.filter(brew => 
+        (brew.method || migrateBrewMethod(brew.brewMethod || brew.coffeeType)) === method
+      );
+      
+      if (methodBrews.length > 0) {
+        const recentBrews = methodBrews.slice(0, 5);
+        const newSuggestion = await getSuggestion(recentBrews, method);
         setSuggestion(newSuggestion);
       } else if (!cachedSuggestion) {
-        // No brews yet, get default suggestion
-        const defaultSuggestion = await getSuggestion([], 'espresso');
+        // No brews yet for this method, get default suggestion
+        const defaultSuggestion = await getSuggestion([], method);
         setSuggestion(defaultSuggestion);
       }
       
@@ -75,7 +86,7 @@ const BeanProfile = () => {
       // Try fallback if no cached suggestion
       if (!suggestion) {
         try {
-          const fallbackSuggestion = await getSuggestion([], 'espresso');
+          const fallbackSuggestion = await getSuggestion([], method);
           setSuggestion(fallbackSuggestion);
         } catch (fallbackError) {
           console.error('Fallback also failed:', fallbackError);
@@ -181,10 +192,32 @@ const BeanProfile = () => {
       )}
 
       <div className="mb-6">
+        <div className="card mb-4">
+          <h3 className="font-medium text-coffee-900 mb-3">Method</h3>
+          <div className="flex gap-2 overflow-x-auto pb-2">
+            {Object.entries(BREW_METHODS).map(([key, method]) => (
+              <button
+                key={key}
+                onClick={() => {
+                  setSelectedMethod(key);
+                  loadBeanSuggestion(bean, brews, key);
+                }}
+                className={`px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+                  selectedMethod === key
+                    ? 'bg-coffee-600 text-white'
+                    : 'bg-coffee-100 text-coffee-700 hover:bg-coffee-200'
+                }`}
+              >
+                {method.name}
+              </button>
+            ))}
+          </div>
+        </div>
+        
         <NextBrewCard 
           suggestion={suggestion} 
           loading={suggestionLoading}
-          onRefresh={() => loadBeanSuggestion(bean, brews)}
+          onRefresh={() => loadBeanSuggestion(bean, brews, selectedMethod)}
           isOffline={isOffline}
         />
       </div>

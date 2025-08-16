@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getBeans, saveBrew, getBrewsForBean, saveBeanSuggestion } from '../utils/storage';
-import { COFFEE_TYPES, TASTE_OPTIONS, getSuggestion } from '../services/aiSuggestions';
+import { BREW_METHODS, TASTE_OPTIONS, getSuggestion, migrateBrewMethod, calculateRatio } from '../services/aiSuggestions';
+import MethodSelector from './MethodSelector';
+import MethodFields from './MethodFields';
 
 const BrewForm = () => {
   const { beanId } = useParams();
@@ -9,14 +11,17 @@ const BrewForm = () => {
   const [bean, setBean] = useState(null);
   const [suggestion, setSuggestion] = useState(null);
   const [formData, setFormData] = useState({
-    grindSize: 3,
-    coffeeAmount: 18,
-    waterAmount: 300,
-    brewTime: 240,
+    method: 'pourover',
     taste: '',
-    coffeeType: 'espresso',
-    notes: ''
+    notes: '',
+    // Method-specific fields will be added dynamically
+    doseG: 20,
+    waterMl: 300,
+    grindSize: 'medium',
+    waterTempC: 95,
+    brewTimeSec: 240
   });
+  const [fieldErrors, setFieldErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -36,28 +41,46 @@ const BrewForm = () => {
 
       setBean(currentBean);
       
-      // Load AI suggestion based on previous brews
-      const previousBrews = getBrewsForBean(beanId).slice(0, 3);
-      const newSuggestion = await getSuggestion(previousBrews, formData.coffeeType);
+      // Load AI suggestion based on previous brews for the current method
+      const previousBrews = getBrewsForBean(beanId)
+        .filter(brew => brew.method === formData.method)
+        .slice(0, 3);
+      const newSuggestion = await getSuggestion(previousBrews, formData.method);
       setSuggestion(newSuggestion);
       
-      // Apply suggestion to form
+      // Apply suggestion to form if available
       if (newSuggestion) {
-        const [coffeeRatio, waterRatio] = newSuggestion.ratio.split(':').map(r => parseFloat(r.trim()));
-        const waterAmount = Math.round((formData.coffeeAmount / coffeeRatio) * waterRatio);
-        
-        setFormData(prev => ({
-          ...prev,
-          grindSize: newSuggestion.grindSize,
-          waterAmount: waterAmount,
-          brewTime: newSuggestion.brewTime
-        }));
+        applySuggestionToForm(newSuggestion);
       }
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const applySuggestionToForm = (suggestion) => {
+    const updates = {
+      grindSize: suggestion.grindSize,
+      waterTempC: suggestion.waterTempC
+    };
+
+    // Apply method-specific fields from suggestion
+    switch (formData.method) {
+      case 'espresso':
+        updates.brewTimeSec = suggestion.brewTime;
+        if (suggestion.pressureBar) updates.pressureBar = suggestion.pressureBar;
+        break;
+      case 'pourover':
+        updates.brewTimeSec = suggestion.brewTime;
+        break;
+      case 'frenchpress':
+      case 'mokapot':
+        updates.brewTimeMin = suggestion.brewTime;
+        break;
+    }
+
+    setFormData(prev => ({ ...prev, ...updates }));
   };
 
   const handleSubmit = async (e) => {
@@ -72,7 +95,7 @@ const BrewForm = () => {
       const brewData = {
         ...formData,
         beanId: beanId,
-        brewMethod: formData.coffeeType
+        brewMethod: formData.method // For backward compatibility
       };
       
       // Save the brew
@@ -80,9 +103,10 @@ const BrewForm = () => {
       
       // Generate and save new AI suggestion based on updated brew history
       try {
-        const updatedBrews = getBrewsForBean(beanId);
+        const updatedBrews = getBrewsForBean(beanId)
+          .filter(brew => (brew.method || migrateBrewMethod(brew.brewMethod || brew.coffeeType)) === formData.method);
         const recentBrews = updatedBrews.slice(0, 5);
-        const newSuggestion = await getSuggestion(recentBrews, formData.coffeeType);
+        const newSuggestion = await getSuggestion(recentBrews, formData.method);
         await saveBeanSuggestion(beanId, newSuggestion);
       } catch (suggestionError) {
         console.warn('Failed to generate new suggestion after brew save:', suggestionError);
@@ -101,38 +125,45 @@ const BrewForm = () => {
   const handleChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     
-    // Update water amount when coffee amount changes to maintain ratio
-    if (field === 'coffeeAmount' && suggestion) {
-      const [coffeeRatio, waterRatio] = suggestion.ratio.split(':').map(r => parseFloat(r.trim()));
-      const newWaterAmount = Math.round((value / coffeeRatio) * waterRatio);
-      setFormData(prev => ({ ...prev, waterAmount: newWaterAmount }));
+    // Clear field error when user starts typing
+    if (fieldErrors[field]) {
+      setFieldErrors(prev => ({ ...prev, [field]: null }));
     }
   };
 
-  const handleCoffeeTypeChange = async (newType) => {
-    setFormData(prev => ({ ...prev, coffeeType: newType }));
+  const handleMethodChange = async (newMethod) => {
+    setFormData(prev => ({ 
+      ...prev, 
+      method: newMethod,
+      // Reset method-specific fields to defaults
+      doseG: 20,
+      yieldG: newMethod === 'espresso' ? 40 : undefined,
+      waterMl: newMethod !== 'espresso' ? 300 : undefined,
+      grindSize: 'medium',
+      waterTempC: 95,
+      brewTimeSec: ['espresso', 'pourover'].includes(newMethod) ? 240 : undefined,
+      brewTimeMin: ['frenchpress', 'mokapot'].includes(newMethod) ? 4 : undefined,
+      pressureBar: newMethod === 'espresso' ? 9 : undefined,
+      pouringNote: newMethod === 'pourover' ? '' : undefined
+    }));
     
-    // Get new suggestion for different coffee type
+    // Get new suggestion for different method
     try {
-      const previousBrews = getBrewsForBean(beanId).slice(0, 3);
-      const newSuggestion = await getSuggestion(previousBrews, newType);
+      const previousBrews = getBrewsForBean(beanId)
+        .filter(brew => (brew.method || migrateBrewMethod(brew.brewMethod || brew.coffeeType)) === newMethod)
+        .slice(0, 3);
+      const newSuggestion = await getSuggestion(previousBrews, newMethod);
       setSuggestion(newSuggestion);
       
       if (newSuggestion) {
-        const [coffeeRatio, waterRatio] = newSuggestion.ratio.split(':').map(r => parseFloat(r.trim()));
-        const waterAmount = Math.round((formData.coffeeAmount / coffeeRatio) * waterRatio);
-        
-        setFormData(prev => ({
-          ...prev,
-          grindSize: newSuggestion.grindSize,
-          waterAmount: waterAmount,
-          brewTime: newSuggestion.brewTime
-        }));
+        // Apply suggestion after method change
+        setTimeout(() => applySuggestionToForm(newSuggestion), 100);
       }
     } catch (error) {
       console.error('Error updating suggestion:', error);
     }
   };
+
 
   if (loading) {
     return (
@@ -190,100 +221,38 @@ const BrewForm = () => {
           </div>
           <p className="text-sm text-coffee-700 mb-3">{suggestion.explanation}</p>
           <div className="text-xs text-coffee-600">
-            Recommended: {suggestion.grindSize} grind • {suggestion.ratio} ratio • {suggestion.brewTime}s
+            Recommended: {suggestion.grindSize} grind • {suggestion.ratio} ratio • {suggestion.brewTime}{BREW_METHODS[formData.method]?.timeUnit === 'minutes' ? 'min' : 's'}
+            {suggestion.waterTempC && ` • ${suggestion.waterTempC}°C`}
+            {suggestion.pressureBar && ` • ${suggestion.pressureBar} bar`}
           </div>
         </div>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="card">
-          <h3 className="font-medium text-coffee-900 mb-4">Coffee Type</h3>
-          <select
-            value={formData.coffeeType}
-            onChange={(e) => handleCoffeeTypeChange(e.target.value)}
-            className="input-field"
-          >
-            {COFFEE_TYPES.map(type => (
-              <option key={type} value={type} className="capitalize">
-                {type.replace('_', ' ')}
-              </option>
-            ))}
-          </select>
-        </div>
+        <MethodSelector 
+          selectedMethod={formData.method}
+          onMethodChange={handleMethodChange}
+        />
 
-        <div className="card">
-          <h3 className="font-medium text-coffee-900 mb-4">Brew Parameters</h3>
-          
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-coffee-700 mb-2">
-                Grind Size: {formData.grindSize}
-              </label>
-              <input
-                type="range"
-                min="1"
-                max="6"
-                step="0.1"
-                value={formData.grindSize}
-                onChange={(e) => handleChange('grindSize', parseFloat(e.target.value))}
-                className="slider"
-              />
-              <div className="flex justify-between text-xs text-coffee-600 mt-1">
-                <span>Fine</span>
-                <span>Coarse</span>
-              </div>
+        <MethodFields
+          method={formData.method}
+          formData={formData}
+          onChange={handleChange}
+          errors={fieldErrors}
+        />
+
+        {/* Show calculated ratio */}
+        {formData.method && (
+          <div className="card bg-coffee-25">
+            <h3 className="font-medium text-coffee-900 mb-2">Calculated Ratio</h3>
+            <div className="text-lg font-semibold text-coffee-700">
+              {calculateRatio(formData.method, formData).value}
             </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-coffee-700 mb-2">
-                  Coffee (grams)
-                </label>
-                <input
-                  type="number"
-                  value={formData.coffeeAmount}
-                  onChange={(e) => handleChange('coffeeAmount', parseInt(e.target.value))}
-                  min="5"
-                  max="50"
-                  className="input-field"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-coffee-700 mb-2">
-                  Water (ml)
-                </label>
-                <input
-                  type="number"
-                  value={formData.waterAmount}
-                  onChange={(e) => handleChange('waterAmount', parseInt(e.target.value))}
-                  min="50"
-                  max="1000"
-                  className="input-field"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-coffee-700 mb-2">
-                Brew Time: {formData.brewTime}s
-              </label>
-              <input
-                type="range"
-                min="15"
-                max="480"
-                step="5"
-                value={formData.brewTime}
-                onChange={(e) => handleChange('brewTime', parseInt(e.target.value))}
-                className="slider"
-              />
-              <div className="flex justify-between text-xs text-coffee-600 mt-1">
-                <span>15s</span>
-                <span>8min</span>
-              </div>
+            <div className="text-xs text-coffee-600">
+              {BREW_METHODS[formData.method]?.ratioLabel}
             </div>
           </div>
-        </div>
+        )}
 
         <div className="card">
           <h3 className="font-medium text-coffee-900 mb-4">Taste Feedback *</h3>
