@@ -1,6 +1,6 @@
 import React from 'react';
 
-const NextBrewCard = ({ suggestion, loading, onRefresh }) => {
+const NextBrewCard = ({ suggestion, loading, onRefresh, isOffline }) => {
   if (loading) {
     return (
       <div className="card">
@@ -18,9 +18,12 @@ const NextBrewCard = ({ suggestion, loading, onRefresh }) => {
   if (!suggestion) {
     return (
       <div className="card text-center">
-        <div className="text-coffee-600 mb-3">⚠️</div>
-        <p className="text-coffee-600">Unable to load suggestions</p>
-        <button onClick={onRefresh} className="btn-secondary mt-3">
+        <div className="text-4xl mb-3">☕</div>
+        <h3 className="font-medium text-coffee-900 mb-2">No suggestions yet</h3>
+        <p className="text-coffee-600 text-sm mb-4">
+          Add some coffee beans and log a few brews to get AI-powered suggestions
+        </p>
+        <button onClick={onRefresh} className="btn-secondary">
           Try Again
         </button>
       </div>
@@ -30,9 +33,17 @@ const NextBrewCard = ({ suggestion, loading, onRefresh }) => {
   return (
     <div className="card">
       <div className="flex justify-between items-start mb-4">
-        <h2 className="text-lg font-semibold text-coffee-900">
-          Recommended Parameters
-        </h2>
+        <div>
+          <h2 className="text-lg font-semibold text-coffee-900">
+            Your Next Brew
+          </h2>
+          {isOffline && (
+            <div className="text-xs text-amber-600 mt-1 flex items-center">
+              <span className="mr-1">⚠️</span>
+              Using offline suggestion
+            </div>
+          )}
+        </div>
         <button
           onClick={onRefresh}
           className="text-coffee-600 hover:text-coffee-700 p-1"

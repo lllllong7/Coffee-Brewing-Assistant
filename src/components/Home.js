@@ -11,6 +11,7 @@ const Home = () => {
   const [loading, setLoading] = useState(true);
   const [showAddBean, setShowAddBean] = useState(false);
   const [recentBeans, setRecentBeans] = useState([]);
+  const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
     loadSuggestion();
@@ -20,11 +21,38 @@ const Home = () => {
   const loadSuggestion = async () => {
     try {
       setLoading(true);
-      const recentBrews = getRecentBrews(3);
-      const newSuggestion = await getSuggestion(recentBrews, 'espresso');
+      setIsOffline(false);
+      
+      // Get recent brews from the most active bean
+      const beans = getBeans();
+      const recentBrews = getRecentBrews();
+      
+      if (beans.length === 0 || recentBrews.length === 0) {
+        // No data yet, show default suggestion
+        const defaultSuggestion = await getSuggestion([], 'espresso');
+        setSuggestion(defaultSuggestion);
+        return;
+      }
+      
+      // Find the most recently used bean
+      const mostRecentBrew = recentBrews[0];
+      const beanBrews = recentBrews.filter(b => b.beanId === mostRecentBrew.beanId).slice(0, 5);
+      
+      // Get suggestion for the most active bean
+      const coffeeType = mostRecentBrew.brewMethod || 'espresso';
+      const newSuggestion = await getSuggestion(beanBrews, coffeeType);
       setSuggestion(newSuggestion);
+      
     } catch (error) {
       console.error('Error loading suggestion:', error);
+      setIsOffline(true);
+      // Try fallback
+      try {
+        const fallbackSuggestion = await getSuggestion([], 'espresso');
+        setSuggestion(fallbackSuggestion);
+      } catch (fallbackError) {
+        console.error('Fallback also failed:', fallbackError);
+      }
     } finally {
       setLoading(false);
     }
@@ -56,10 +84,10 @@ const Home = () => {
     <div className="p-4 pb-20">
       <header className="mb-6">
         <h1 className="text-2xl font-bold text-coffee-900 mb-2">
-          Your Next Brew
+          Your Coffee Dashboard
         </h1>
         <p className="text-coffee-600">
-          AI-powered suggestions for better coffee
+          Track your brewing journey
         </p>
       </header>
 
@@ -67,6 +95,7 @@ const Home = () => {
         suggestion={suggestion} 
         loading={loading}
         onRefresh={loadSuggestion}
+        isOffline={isOffline}
       />
 
       <div className="mt-6">

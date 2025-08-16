@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getBeans, saveBrew, getBrewsForBean } from '../utils/storage';
+import { getBeans, saveBrew, getBrewsForBean, saveBeanSuggestion } from '../utils/storage';
 import { COFFEE_TYPES, TASTE_OPTIONS, getSuggestion } from '../services/aiSuggestions';
 
 const BrewForm = () => {
@@ -71,9 +71,24 @@ const BrewForm = () => {
       setSaving(true);
       const brewData = {
         ...formData,
-        beanId: beanId
+        beanId: beanId,
+        brewMethod: formData.coffeeType
       };
+      
+      // Save the brew
       await saveBrew(brewData);
+      
+      // Generate and save new AI suggestion based on updated brew history
+      try {
+        const updatedBrews = getBrewsForBean(beanId);
+        const recentBrews = updatedBrews.slice(0, 5);
+        const newSuggestion = await getSuggestion(recentBrews, formData.coffeeType);
+        await saveBeanSuggestion(beanId, newSuggestion);
+      } catch (suggestionError) {
+        console.warn('Failed to generate new suggestion after brew save:', suggestionError);
+        // Don't block navigation if suggestion fails
+      }
+      
       navigate(`/bean/${beanId}`);
     } catch (error) {
       console.error('Error saving brew:', error);

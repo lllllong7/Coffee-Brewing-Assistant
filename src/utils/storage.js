@@ -85,6 +85,40 @@ export const saveBrew = (brew) => {
   }
 };
 
+// Save AI suggestion for a bean
+export const saveBeanSuggestion = (beanId, suggestion) => {
+  try {
+    const beans = getBeans();
+    const beanIndex = beans.findIndex(b => b.id === beanId);
+    
+    if (beanIndex >= 0) {
+      beans[beanIndex].suggestion = {
+        ...suggestion,
+        updatedAt: new Date().toISOString()
+      };
+      localStorage.setItem(STORAGE_KEYS.BEANS, JSON.stringify(beans));
+      return beans[beanIndex];
+    }
+    
+    throw new Error('Bean not found');
+  } catch (error) {
+    console.error('Error saving bean suggestion:', error);
+    throw error;
+  }
+};
+
+// Get AI suggestion for a bean
+export const getBeanSuggestion = (beanId) => {
+  try {
+    const beans = getBeans();
+    const bean = beans.find(b => b.id === beanId);
+    return bean?.suggestion || null;
+  } catch (error) {
+    console.error('Error getting bean suggestion:', error);
+    return null;
+  }
+};
+
 export const getRecentBrews = (limit = 5) => {
   const allBrews = getBrews();
   return allBrews

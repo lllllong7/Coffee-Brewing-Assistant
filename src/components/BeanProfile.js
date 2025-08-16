@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getBeans, getBrewsForBean } from '../utils/storage';
+import { getBeans, getBrewsForBean, getBeanSuggestion, saveBeanSuggestion } from '../utils/storage';
+import { getSuggestion } from '../services/aiSuggestions';
+import NextBrewCard from './NextBrewCard';
 
 const BeanProfile = () => {
   const { id } = useParams();
@@ -8,12 +10,15 @@ const BeanProfile = () => {
   const [bean, setBean] = useState(null);
   const [brews, setBrews] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [suggestion, setSuggestion] = useState(null);
+  const [suggestionLoading, setSuggestionLoading] = useState(true);
+  const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
     loadBeanData();
   }, [id]);
 
-  const loadBeanData = () => {
+  const loadBeanData = async () => {
     try {
       const allBeans = getBeans();
       const currentBean = allBeans.find(b => b.id === id);
@@ -26,10 +31,58 @@ const BeanProfile = () => {
       const beanBrews = getBrewsForBean(id);
       setBean(currentBean);
       setBrews(beanBrews);
+      
+      // Load AI suggestion for this bean
+      await loadBeanSuggestion(currentBean, beanBrews);
     } catch (error) {
       console.error('Error loading bean data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadBeanSuggestion = async (beanData, beanBrews) => {
+    try {
+      setSuggestionLoading(true);
+      setIsOffline(false);
+      
+      // Check if we have a cached suggestion
+      const cachedSuggestion = getBeanSuggestion(beanData.id);
+      if (cachedSuggestion) {
+        setSuggestion(cachedSuggestion);
+        setSuggestionLoading(false);
+      }
+      
+      // Get fresh suggestion if we have brews
+      if (beanBrews.length > 0) {
+        const recentBrews = beanBrews.slice(0, 5);
+        const coffeeType = recentBrews[0]?.brewMethod || 'espresso';
+        const newSuggestion = await getSuggestion(recentBrews, coffeeType);
+        
+        // Save suggestion to bean
+        await saveBeanSuggestion(beanData.id, newSuggestion);
+        setSuggestion(newSuggestion);
+      } else if (!cachedSuggestion) {
+        // No brews yet, get default suggestion
+        const defaultSuggestion = await getSuggestion([], 'espresso');
+        setSuggestion(defaultSuggestion);
+      }
+      
+    } catch (error) {
+      console.error('Error loading bean suggestion:', error);
+      setIsOffline(true);
+      
+      // Try fallback if no cached suggestion
+      if (!suggestion) {
+        try {
+          const fallbackSuggestion = await getSuggestion([], 'espresso');
+          setSuggestion(fallbackSuggestion);
+        } catch (fallbackError) {
+          console.error('Fallback also failed:', fallbackError);
+        }
+      }
+    } finally {
+      setSuggestionLoading(false);
     }
   };
 
@@ -126,6 +179,15 @@ const BeanProfile = () => {
           <p className="text-coffee-700 text-sm">{bean.notes}</p>
         </div>
       )}
+
+      <div className="mb-6">
+        <NextBrewCard 
+          suggestion={suggestion} 
+          loading={suggestionLoading}
+          onRefresh={() => loadBeanSuggestion(bean, brews)}
+          isOffline={isOffline}
+        />
+      </div>
 
       {lastBrewParams && (
         <div className="card mb-6">
