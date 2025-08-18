@@ -52,6 +52,11 @@ const BeanProfile = () => {
     }
   };
 
+  const handleMethodChange = (newMethod) => {
+    setSelectedMethod(newMethod);
+    loadBeanSuggestion(bean, brews, newMethod);
+  };
+
   const loadBeanSuggestion = async (beanData, beanBrews, method = selectedMethod) => {
     try {
       setSuggestionLoading(true);
@@ -130,6 +135,9 @@ const BeanProfile = () => {
     return labels[taste] || taste;
   };
 
+  // Normalize taste to an array for backward compatibility
+  const asTasteArray = (taste) => Array.isArray(taste) ? taste : (taste ? [taste] : []);
+
   if (loading) {
     return (
       <div className="p-4">
@@ -192,33 +200,14 @@ const BeanProfile = () => {
       )}
 
       <div className="mb-6">
-        <div className="card mb-4">
-          <h3 className="font-medium text-coffee-900 mb-3">Method</h3>
-          <div className="flex gap-2 overflow-x-auto pb-2">
-            {Object.entries(BREW_METHODS).map(([key, method]) => (
-              <button
-                key={key}
-                onClick={() => {
-                  setSelectedMethod(key);
-                  loadBeanSuggestion(bean, brews, key);
-                }}
-                className={`px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
-                  selectedMethod === key
-                    ? 'bg-coffee-600 text-white'
-                    : 'bg-coffee-100 text-coffee-700 hover:bg-coffee-200'
-                }`}
-              >
-                {method.name}
-              </button>
-            ))}
-          </div>
-        </div>
-        
         <NextBrewCard 
+          bean={bean}
           suggestion={suggestion} 
           loading={suggestionLoading}
           onRefresh={() => loadBeanSuggestion(bean, brews, selectedMethod)}
           isOffline={isOffline}
+          selectedMethod={selectedMethod}
+          onMethodChange={handleMethodChange}
         />
       </div>
 
@@ -245,8 +234,12 @@ const BeanProfile = () => {
               <div className="text-xs text-coffee-600">Brew Time</div>
             </div>
             <div>
-              <div className={`text-lg font-semibold ${getTasteColor(lastBrewParams.taste)}`}>
-                {getTasteLabel(lastBrewParams.taste)}
+              <div className="flex flex-wrap gap-1">
+                {asTasteArray(lastBrewParams.taste).map((t) => (
+                  <span key={t} className={`px-2 py-0.5 rounded-full bg-coffee-100 ${getTasteColor(t)} text-xs font-medium`}>
+                    {getTasteLabel(t)}
+                  </span>
+                ))}
               </div>
               <div className="text-xs text-coffee-600">Taste</div>
             </div>
@@ -306,10 +299,12 @@ const BeanProfile = () => {
                     <span className="text-coffee-600">Water:</span> {brew.waterAmount}ml
                   </div>
                 </div>
-                <div className="mt-2">
-                  <span className={`text-xs font-medium ${getTasteColor(brew.taste)}`}>
-                    {getTasteLabel(brew.taste)}
-                  </span>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {asTasteArray(brew.taste).map((t) => (
+                    <span key={t} className={`px-2 py-0.5 rounded-full bg-coffee-100 ${getTasteColor(t)} text-xs font-medium`}>
+                      {getTasteLabel(t)}
+                    </span>
+                  ))}
                   {brew.coffeeType && (
                     <span className="text-xs text-coffee-600 ml-2">
                       • {brew.coffeeType}

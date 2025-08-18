@@ -12,7 +12,7 @@ const BrewForm = () => {
   const [suggestion, setSuggestion] = useState(null);
   const [formData, setFormData] = useState({
     method: 'pourover',
-    taste: '',
+    taste: [],
     notes: '',
     // Method-specific fields will be added dynamically
     doseG: 20,
@@ -85,8 +85,8 @@ const BrewForm = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.taste) {
-      alert('Please select taste feedback');
+    if (!formData.taste || formData.taste.length === 0) {
+      alert('Please select at least one taste feedback');
       return;
     }
 
@@ -256,14 +256,22 @@ const BrewForm = () => {
 
         <div className="card">
           <h3 className="font-medium text-coffee-900 mb-4">Taste Feedback *</h3>
+          <p className="text-xs text-coffee-600 mb-3">Select all that apply</p>
           <div className="grid grid-cols-2 gap-3">
             {TASTE_OPTIONS.map(option => (
               <button
                 key={option.value}
                 type="button"
-                onClick={() => handleChange('taste', option.value)}
+                onClick={() => {
+                  const currentTastes = formData.taste || [];
+                  const isSelected = currentTastes.includes(option.value);
+                  const newTastes = isSelected 
+                    ? currentTastes.filter(t => t !== option.value)
+                    : [...currentTastes, option.value];
+                  handleChange('taste', newTastes);
+                }}
                 className={`p-3 rounded-lg border transition-colors text-sm font-medium ${
-                  formData.taste === option.value
+                  formData.taste.includes(option.value)
                     ? 'bg-coffee-700 text-white border-coffee-700'
                     : 'bg-white text-coffee-700 border-coffee-300 hover:border-coffee-500'
                 }`}
@@ -295,7 +303,7 @@ const BrewForm = () => {
           </button>
           <button
             type="submit"
-            disabled={saving || !formData.taste}
+            disabled={saving || !formData.taste || formData.taste.length === 0}
             className="flex-1 btn-primary disabled:opacity-50"
           >
             {saving ? 'Saving...' : 'Save Brew'}

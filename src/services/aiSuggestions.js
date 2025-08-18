@@ -48,10 +48,14 @@ const getFallbackSuggestion = (history, method) => {
   const { taste, method: brewMethod } = lastBrew;
   let suggestion = { ...defaultSuggestions[method] };
   
+  // Handle both array and string taste values for backward compatibility
+  const tastes = Array.isArray(taste) ? taste : [taste];
+  const primaryTaste = tastes[0]; // Use first taste for primary adjustment logic
+  
   // Apply method-specific adjustments based on taste
   switch (method) {
     case 'espresso':
-      switch (taste) {
+      switch (primaryTaste) {
         case 'too_bitter':
           suggestion.grindSize = 'slightly coarser';
           suggestion.brewTime = Math.max((lastBrew.brewTimeSec || 25) - 3, 15);
@@ -71,7 +75,7 @@ const getFallbackSuggestion = (history, method) => {
       break;
       
     case 'pourover':
-      switch (taste) {
+      switch (primaryTaste) {
         case 'too_bitter':
           suggestion.grindSize = 'slightly coarser';
           suggestion.brewTime = Math.max((lastBrew.brewTimeSec || 240) * 0.9, 120);
@@ -93,7 +97,7 @@ const getFallbackSuggestion = (history, method) => {
       break;
       
     case 'frenchpress':
-      switch (taste) {
+      switch (primaryTaste) {
         case 'too_bitter':
           suggestion.grindSize = 'coarser';
           suggestion.brewTime = Math.max((lastBrew.brewTimeMin || 4) - 0.5, 3);
@@ -113,7 +117,7 @@ const getFallbackSuggestion = (history, method) => {
       break;
       
     case 'mokapot':
-      switch (taste) {
+      switch (primaryTaste) {
         case 'too_bitter':
           suggestion.grindSize = 'slightly coarser';
           suggestion.brewTime = Math.max((lastBrew.brewTimeMin || 4) * 0.85, 2);
@@ -149,6 +153,8 @@ const getAISuggestion = async (history, method) => {
 
 Method: ${method}
 Recent brews: ${JSON.stringify(history)}
+
+Note: Taste feedback may be an array of multiple values (e.g., ["too_bitter", "weak"]) or a single string for backward compatibility.
 
 Please recommend:
 - Grind size (number or short descriptor like "fine", "medium", "coarse")

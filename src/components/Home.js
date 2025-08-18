@@ -12,13 +12,15 @@ const Home = () => {
   const [showAddBean, setShowAddBean] = useState(false);
   const [recentBeans, setRecentBeans] = useState([]);
   const [isOffline, setIsOffline] = useState(false);
+  const [selectedMethod, setSelectedMethod] = useState('pourover');
+  const [suggestionBean, setSuggestionBean] = useState(null);
 
   useEffect(() => {
     loadSuggestion();
     loadRecentBeans();
   }, []);
 
-  const loadSuggestion = async () => {
+  const loadSuggestion = async (method) => {
     try {
       setLoading(true);
       setIsOffline(false);
@@ -30,6 +32,7 @@ const Home = () => {
       const beans = getBeans();
       
       if (beans.length === 0 || migratedBrews.length === 0) {
+        setSuggestionBean(null);
         // No data yet, show default suggestion
         const defaultSuggestion = await getSuggestion([], 'pourover');
         setSuggestion(defaultSuggestion);
@@ -38,14 +41,20 @@ const Home = () => {
       
       // Find the most recently used bean and method
       const mostRecentBrew = migratedBrews[0];
-      const brewMethod = mostRecentBrew.method || migrateBrewMethod(mostRecentBrew.brewMethod || mostRecentBrew.coffeeType);
+      const currentBean = beans.find(b => b.id === mostRecentBrew.beanId);
+      setSuggestionBean(currentBean);
+      const currentMethod = method || mostRecentBrew.method || migrateBrewMethod(mostRecentBrew.brewMethod || mostRecentBrew.coffeeType);
+      
+      if (method) {
+        setSelectedMethod(method);
+      }
+
       const beanBrews = migratedBrews
         .filter(b => b.beanId === mostRecentBrew.beanId && 
-                    (b.method || migrateBrewMethod(b.brewMethod || b.coffeeType)) === brewMethod)
+                    (b.method || migrateBrewMethod(b.brewMethod || b.coffeeType)) === currentMethod)
         .slice(0, 5);
       
-      // Get suggestion for the most active bean and method
-      const newSuggestion = await getSuggestion(beanBrews, brewMethod);
+      const newSuggestion = await getSuggestion(beanBrews, currentMethod);
       setSuggestion(newSuggestion);
       
     } catch (error) {
@@ -85,6 +94,11 @@ const Home = () => {
     loadRecentBeans();
   };
 
+  const handleMethodChange = (newMethod) => {
+    setSelectedMethod(newMethod);
+    loadSuggestion(newMethod);
+  };
+
   return (
     <div className="p-4 pb-20">
       <header className="mb-6">
@@ -97,10 +111,13 @@ const Home = () => {
       </header>
 
       <NextBrewCard 
+        bean={suggestionBean}
         suggestion={suggestion} 
         loading={loading}
-        onRefresh={loadSuggestion}
+        onRefresh={() => loadSuggestion(selectedMethod)}
         isOffline={isOffline}
+        selectedMethod={selectedMethod}
+        onMethodChange={handleMethodChange}
       />
 
       <div className="mt-6">

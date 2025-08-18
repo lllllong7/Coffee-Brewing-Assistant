@@ -1,54 +1,17 @@
 import React from 'react';
-import { BREW_METHODS, calculateRatio } from '../services/aiSuggestions';
+import { BREW_METHODS } from '../services/aiSuggestions';
 
-const NextBrewCard = ({ suggestion, loading, onRefresh, isOffline }) => {
-  if (loading) {
-    return (
-      <div className="card">
-        <div className="animate-pulse">
-          <div className="h-4 bg-coffee-200 rounded w-3/4 mb-3"></div>
-          <div className="space-y-3">
-            <div className="h-3 bg-coffee-200 rounded"></div>
-            <div className="h-3 bg-coffee-200 rounded w-5/6"></div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!suggestion) {
-    return (
-      <div className="card text-center">
-        <div className="text-4xl mb-3">☕</div>
-        <h3 className="font-medium text-coffee-900 mb-2">No suggestions yet</h3>
-        <p className="text-coffee-600 text-sm mb-4">
-          Add some coffee beans and log a few brews to get AI-powered suggestions
-        </p>
-        <button onClick={onRefresh} className="btn-secondary">
-          Try Again
-        </button>
-      </div>
-    );
-  }
-
-  const methodConfig = BREW_METHODS[suggestion.method];
+const NextBrewCard = ({ bean, suggestion, loading, onRefresh, isOffline, selectedMethod, onMethodChange }) => {
+  const methodConfig = suggestion ? BREW_METHODS[suggestion.method] : null;
   const timeUnit = methodConfig?.timeUnit === 'minutes' ? 'min' : 's';
 
   return (
     <div className="card">
-      <div className="flex justify-between items-start mb-4">
+      <div className="flex justify-between items-start mb-2">
         <div>
-          <h2 className="text-lg font-semibold text-coffee-900">
-            Your Next Brew
-          </h2>
-          <div className="text-sm text-coffee-600 mt-1">
-            {methodConfig?.name || suggestion.method}
-          </div>
-          {isOffline && (
-            <div className="text-xs text-amber-600 mt-1 flex items-center">
-              <span className="mr-1">⚠️</span>
-              Using offline suggestion
-            </div>
+          <h2 className="text-lg font-semibold text-coffee-900">Your Next Brew</h2>
+          {bean && (
+            <p className="text-sm text-coffee-600 font-normal">for {bean.name}</p>
           )}
         </div>
         <button
@@ -60,67 +23,88 @@ const NextBrewCard = ({ suggestion, loading, onRefresh, isOffline }) => {
         </button>
       </div>
 
-      <div className="space-y-4">
-        <div className="grid grid-cols-3 gap-4">
-          <div className="text-center">
-            <div className="text-2xl font-bold text-coffee-700">
-              {suggestion.grindSize}
-            </div>
-            <div className="text-xs text-coffee-600 font-medium">
-              Grind Size
-            </div>
-          </div>
-          
-          <div className="text-center">
-            <div className="text-2xl font-bold text-coffee-700">
-              {suggestion.ratio}
-            </div>
-            <div className="text-xs text-coffee-600 font-medium">
-              Ratio
-            </div>
-          </div>
-          
-          <div className="text-center">
-            <div className="text-2xl font-bold text-coffee-700">
-              {suggestion.brewTime}{timeUnit}
-            </div>
-            <div className="text-xs text-coffee-600 font-medium">
-              Brew Time
-            </div>
-          </div>
+      {isOffline && (
+        <div className="text-xs text-amber-600 mb-2 flex items-center">
+          <span className="mr-1">⚠️</span>
+          Using offline suggestion
         </div>
+      )}
 
-        {/* Additional method-specific parameters */}
-        {(suggestion.waterTempC || suggestion.pressureBar) && (
-          <div className="grid grid-cols-2 gap-4">
-            {suggestion.waterTempC && (
-              <div className="text-center">
-                <div className="text-lg font-semibold text-coffee-700">
-                  {suggestion.waterTempC}°C
-                </div>
-                <div className="text-xs text-coffee-600 font-medium">
-                  Water Temp
-                </div>
-              </div>
-            )}
-            {suggestion.pressureBar && (
-              <div className="text-center">
-                <div className="text-lg font-semibold text-coffee-700">
-                  {suggestion.pressureBar} bar
-                </div>
-                <div className="text-xs text-coffee-600 font-medium">
-                  Pressure
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="bg-coffee-50 rounded-lg p-3">
-          <div className="text-xs font-medium text-coffee-700 mb-1">Why:</div>
-          <p className="text-sm text-coffee-600">{suggestion.explanation}</p>
+      <div className="mb-4">
+        <div className="flex gap-2 overflow-x-auto pb-2">
+          {Object.entries(BREW_METHODS).map(([key, method]) => (
+            <button
+              key={key}
+              onClick={() => onMethodChange(key)}
+              className={`px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+                selectedMethod === key
+                  ? 'bg-coffee-600 text-white'
+                  : 'bg-coffee-100 text-coffee-700 hover:bg-coffee-200'
+              }`}
+            >
+              {method.name}
+            </button>
+          ))}
         </div>
       </div>
+
+      {loading ? (
+        <div className="animate-pulse">
+          <div className="space-y-3">
+            <div className="h-3 bg-coffee-200 rounded"></div>
+            <div className="h-3 bg-coffee-200 rounded w-5/6"></div>
+            <div className="grid grid-cols-3 gap-4 mt-4">
+              <div className="h-8 bg-coffee-200 rounded"></div>
+              <div className="h-8 bg-coffee-200 rounded"></div>
+              <div className="h-8 bg-coffee-200 rounded"></div>
+            </div>
+          </div>
+        </div>
+      ) : suggestion ? (
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-4">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-coffee-700">{suggestion.grindSize}</div>
+              <div className="text-xs text-coffee-600 font-medium">Grind Size</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-coffee-700">{suggestion.ratio}</div>
+              <div className="text-xs text-coffee-600 font-medium">Ratio</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-coffee-700">{suggestion.brewTime}{timeUnit}</div>
+              <div className="text-xs text-coffee-600 font-medium">Brew Time</div>
+            </div>
+          </div>
+
+          {(suggestion.waterTempC || suggestion.pressureBar) && (
+            <div className="grid grid-cols-2 gap-4 pt-2">
+              {suggestion.waterTempC && (
+                <div className="text-center">
+                  <div className="text-lg font-semibold text-coffee-700">{suggestion.waterTempC}°C</div>
+                  <div className="text-xs text-coffee-600 font-medium">Water Temp</div>
+                </div>
+              )}
+              {suggestion.pressureBar && (
+                <div className="text-center">
+                  <div className="text-lg font-semibold text-coffee-700">{suggestion.pressureBar} bar</div>
+                  <div className="text-xs text-coffee-600 font-medium">Pressure</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="bg-coffee-50 rounded-lg p-3">
+            <div className="text-xs font-medium text-coffee-700 mb-1">Why:</div>
+            <p className="text-sm text-coffee-600">{suggestion.explanation}</p>
+          </div>
+        </div>
+      ) : (
+        <div className="text-center py-4">
+          <p className="text-coffee-600 text-sm">No suggestion available for this method.</p>
+          <p className="text-coffee-600 text-sm mt-1">Log a brew to get started.</p>
+        </div>
+      )}
     </div>
   );
 };
