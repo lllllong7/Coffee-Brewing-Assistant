@@ -14,26 +14,36 @@
 
 @layer components {
   .card {
-    @apply bg-white rounded-xl shadow-sm border border-coffee-200 p-4;
+    @apply bg-white rounded-2xl shadow-md border border-coffee-100 p-6;
   }
-  
+
   .btn-primary {
-    @apply bg-coffee-700 hover:bg-coffee-800 text-white font-medium py-3 px-6 rounded-lg transition-colors duration-200;
+    @apply bg-coffee-800 hover:bg-coffee-900 text-white font-semibold py-3 px-6 rounded-xl shadow-sm transition-all duration-200 transform hover:scale-105;
   }
-  
+
   .btn-secondary {
-    @apply bg-coffee-100 hover:bg-coffee-200 text-coffee-800 font-medium py-3 px-6 rounded-lg transition-colors duration-200;
+    @apply bg-coffee-100 hover:bg-coffee-200 text-coffee-800 font-semibold py-3 px-6 rounded-xl transition-colors duration-200;
   }
-  
+
+  .btn-outline {
+    @apply bg-transparent border border-coffee-600 text-coffee-700 hover:bg-coffee-100 font-semibold py-3 px-6 rounded-xl transition-colors duration-200;
+  }
+
   .input-field {
-    @apply w-full px-4 py-3 border border-coffee-300 rounded-lg focus:ring-2 focus:ring-coffee-500 focus:border-transparent outline-none transition-all duration-200;
+    @apply w-full px-4 py-3 bg-coffee-50 border border-coffee-200 rounded-xl focus:ring-2 focus:ring-caramel-400 focus:border-transparent outline-none transition-all duration-200;
   }
-  
+
   .slider {
     @apply w-full h-2 bg-coffee-200 rounded-lg appearance-none cursor-pointer;
   }
-  
+
   .slider::-webkit-slider-thumb {
-    @apply appearance-none w-5 h-5 bg-coffee-600 rounded-full cursor-pointer;
+    @apply appearance-none w-5 h-5 bg-coffee-700 rounded-full cursor-pointer transition-transform duration-150 ease-in-out hover:scale-110;
+  }
+}
+
+@layer utilities {
+  .bg-header-gradient {
+    @apply bg-gradient-to-r from-coffee-50 to-caramel-100;
   }
 }

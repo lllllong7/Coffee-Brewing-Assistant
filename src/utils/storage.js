@@ -1,6 +1,10 @@
+import { migrateBrewMethod } from '../services/aiSuggestions';
+
 // Local storage utilities for bean profiles and brew logs
 
 const STORAGE_KEYS = {
+  ONBOARDING_STATUS: 'onboarding.status',
+  UI_LAST_INTENT: 'ui.lastIntent',
   BEANS: 'coffee_beans',
   BREWS: 'coffee_brews'
 };
@@ -54,6 +58,7 @@ export const deleteBean = (beanId) => {
 };
 
 // Brew log operations
+
 export const getBrews = () => {
   try {
     const brews = localStorage.getItem(STORAGE_KEYS.BREWS);
@@ -181,6 +186,22 @@ export const migrateBrewData = () => {
     console.error('Error migrating brew data:', error);
     return getBrews();
   }
+};
+
+export const getOnboardingStatus = () => localStorage.getItem(STORAGE_KEYS.ONBOARDING_STATUS) || 'not-started';
+export const setOnboardingStatus = (status) => localStorage.setItem(STORAGE_KEYS.ONBOARDING_STATUS, status);
+
+export const setLastIntent = (intent) => localStorage.setItem(STORAGE_KEYS.UI_LAST_INTENT, intent);
+
+export const hasAnyBrew = () => {
+  const brews = getBrews();
+  return brews.length > 0;
+};
+
+export const getMostRecentBean = () => {
+  const beans = getBeans();
+  if (beans.length === 0) return null;
+  return beans.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
 };
 
 export const getRecentBrews = (limit = 5) => {

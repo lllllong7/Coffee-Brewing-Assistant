@@ -18,14 +18,22 @@ module.exports = {
           800: '#846358',
           900: '#43302b',
         },
-        cream: {
+        caramel: {
           50: '#fefdfb',
           100: '#fef7ed',
           200: '#feebc8',
           300: '#fbd38d',
           400: '#f6ad55',
           500: '#ed8936',
+        },
+        green: {
+          300: '#d1fae5',
+          500: '#10b981',
+          700: '#047857',
         }
+      },
+      borderRadius: {
+        '2xl': '1rem',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],

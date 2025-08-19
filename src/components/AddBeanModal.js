@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { saveBean } from '../utils/storage';
+import { saveBean, setOnboardingStatus } from '../utils/storage';
 
-const AddBeanModal = ({ onClose, onSave, bean = null }) => {
+const AddBeanModal = ({ onClose, onSave, bean = null, isOnboarding = false }) => {
   const [formData, setFormData] = useState({
     name: bean?.name || '',
     origin: bean?.origin || '',
@@ -20,8 +20,8 @@ const AddBeanModal = ({ onClose, onSave, bean = null }) => {
         ...formData,
         ...(bean && { id: bean.id })
       };
-      await saveBean(beanData);
-      onSave();
+      const saved = await saveBean(beanData);
+      onSave(saved);
     } catch (error) {
       console.error('Error saving bean:', error);
     } finally {
@@ -35,14 +35,19 @@ const AddBeanModal = ({ onClose, onSave, bean = null }) => {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end justify-center z-50">
-      <div className="bg-white w-full max-w-md rounded-t-xl p-6 max-h-[80vh] overflow-y-auto">
+      <div className="bg-white w-full max-w-md rounded-t-2xl p-6 max-h-[80vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-semibold text-coffee-900">
+          <h2 className="text-2xl font-bold text-coffee-900">
             {bean ? 'Edit Bean' : 'Add New Bean'}
           </h2>
           <button
-            onClick={onClose}
-            className="text-coffee-600 hover:text-coffee-800 text-xl"
+            onClick={() => {
+              if (isOnboarding) {
+                setOnboardingStatus('skipped');
+              }
+              onClose();
+            }}
+            className="text-coffee-400 hover:text-coffee-600 text-3xl font-light leading-none"
           >
             ×
           </button>
@@ -50,7 +55,7 @@ const AddBeanModal = ({ onClose, onSave, bean = null }) => {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-coffee-700 mb-2">
+            <label className="block text-base font-medium text-coffee-700 mb-2">
               Bean Name *
             </label>
             <input
@@ -64,7 +69,7 @@ const AddBeanModal = ({ onClose, onSave, bean = null }) => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-coffee-700 mb-2">
+            <label className="block text-base font-medium text-coffee-700 mb-2">
               Origin
             </label>
             <input
@@ -77,7 +82,7 @@ const AddBeanModal = ({ onClose, onSave, bean = null }) => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-coffee-700 mb-2">
+            <label className="block text-base font-medium text-coffee-700 mb-2">
               Roast Level
             </label>
             <select
@@ -94,7 +99,7 @@ const AddBeanModal = ({ onClose, onSave, bean = null }) => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-coffee-700 mb-2">
+            <label className="block text-base font-medium text-coffee-700 mb-2">
               Notes
             </label>
             <textarea
@@ -109,8 +114,13 @@ const AddBeanModal = ({ onClose, onSave, bean = null }) => {
           <div className="flex gap-3 pt-4">
             <button
               type="button"
-              onClick={onClose}
-              className="flex-1 btn-secondary"
+              onClick={() => {
+                if (isOnboarding) {
+                  setOnboardingStatus('skipped');
+                }
+                onClose();
+              }}
+              className="flex-1 btn-outline"
             >
               Cancel
             </button>

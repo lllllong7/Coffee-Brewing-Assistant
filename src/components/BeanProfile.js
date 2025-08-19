@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { getBeans, getBrewsForBean, deleteBean, deleteBrew, getBeanSuggestion, migrateBrewData } from '../utils/storage';
 import { getSuggestion, migrateBrewMethod, BREW_METHODS } from '../services/aiSuggestions';
 import NextBrewCard from './NextBrewCard';
@@ -8,6 +8,7 @@ import BrewForm from './BrewForm';
 const BeanProfile = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [bean, setBean] = useState(null);
   const [brews, setBrews] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -18,7 +19,7 @@ const BeanProfile = () => {
 
   useEffect(() => {
     loadBeanData();
-  }, [id]);
+  }, [id, location.key]);
 
   const loadBeanData = async () => {
     try {
@@ -35,16 +36,17 @@ const BeanProfile = () => {
       const beanBrews = migratedBrews.filter(brew => brew.beanId === id);
       
       // Determine the most recent method used
+      let initialMethod = 'pourover';
       if (beanBrews.length > 0) {
-        const recentMethod = beanBrews[0].method || migrateBrewMethod(beanBrews[0].brewMethod || beanBrews[0].coffeeType);
-        setSelectedMethod(recentMethod);
+        initialMethod = beanBrews[0].method || migrateBrewMethod(beanBrews[0].brewMethod || beanBrews[0].coffeeType);
       }
+      setSelectedMethod(initialMethod);
       
       setBean(currentBean);
       setBrews(beanBrews);
       
       // Load AI suggestion for this bean
-      await loadBeanSuggestion(currentBean, beanBrews);
+      await loadBeanSuggestion(currentBean, beanBrews, initialMethod);
     } catch (error) {
       console.error('Error loading bean data:', error);
     } finally {
@@ -58,43 +60,52 @@ const BeanProfile = () => {
   };
 
   const loadBeanSuggestion = async (beanData, beanBrews, method = selectedMethod) => {
+    setSuggestionLoading(true);
+    setIsOffline(false);
+
     try {
-      setSuggestionLoading(true);
-      setIsOffline(false);
-      
-      // Check if we have a cached suggestion for this method
+      // Immediately show cached suggestion if available
       const cachedSuggestion = getBeanSuggestion(beanData.id, method);
       if (cachedSuggestion) {
         setSuggestion(cachedSuggestion);
-        setSuggestionLoading(false);
+      } else {
+        // If no cache, clear previous suggestion to prevent showing stale data
+        setSuggestion(null);
       }
-      
-      // Get fresh suggestion if we have brews for this method
+
+      // Always try to fetch a fresh suggestion
       const methodBrews = beanBrews.filter(brew => 
         (brew.method || migrateBrewMethod(brew.brewMethod || brew.coffeeType)) === method
       );
-      
+
+      let newSuggestion;
       if (methodBrews.length > 0) {
         const recentBrews = methodBrews.slice(0, 5);
-        const newSuggestion = await getSuggestion(recentBrews, method);
-        setSuggestion(newSuggestion);
-      } else if (!cachedSuggestion) {
-        // No brews yet for this method, get default suggestion
-        const defaultSuggestion = await getSuggestion([], method);
-        setSuggestion(defaultSuggestion);
+        newSuggestion = await getSuggestion(recentBrews, method, beanData.name);
+      } else {
+        // No brews for this method, get a default suggestion
+        newSuggestion = await getSuggestion([], method, beanData.name);
       }
       
+      if (newSuggestion) {
+        setSuggestion(newSuggestion);
+      }
+
     } catch (error) {
       console.error('Error loading bean suggestion:', error);
       setIsOffline(true);
       
-      // Try fallback if no cached suggestion
-      if (!suggestion) {
+      // Use cached suggestion as fallback if API fails
+      const cached = getBeanSuggestion(beanData.id, method);
+      if (!suggestion && cached) {
+        setSuggestion(cached);
+      } else {
+        // If no suggestion and no cache, try one last time for a default
         try {
-          const fallbackSuggestion = await getSuggestion([], method);
+          const fallbackSuggestion = await getSuggestion([], method, beanData.name);
           setSuggestion(fallbackSuggestion);
         } catch (fallbackError) {
-          console.error('Fallback also failed:', fallbackError);
+          console.error('Fallback suggestion also failed:', fallbackError);
         }
       }
     } finally {
@@ -102,26 +113,16 @@ const BeanProfile = () => {
     }
   };
 
-  const getLastBrewParams = () => {
-    if (brews.length === 0) return null;
-    const lastBrew = brews[0];
-    return {
-      grindSize: lastBrew.grindSize,
-      ratio: `${lastBrew.coffeeAmount}g : ${lastBrew.waterAmount}ml`,
-      brewTime: `${lastBrew.brewTime}s`,
-      taste: lastBrew.taste
-    };
-  };
 
   const getTasteColor = (taste) => {
     const colors = {
-      'too_bitter': 'text-red-600',
-      'too_sour': 'text-yellow-600',
-      'balanced': 'text-green-600',
-      'weak': 'text-blue-600',
-      'strong': 'text-purple-600'
+      'too_bitter': 'text-red-500 bg-red-100',
+      'too_sour': 'text-yellow-600 bg-yellow-100',
+      'balanced': 'text-green-600 bg-green-100',
+      'weak': 'text-blue-500 bg-blue-100',
+      'strong': 'text-purple-500 bg-purple-100',
     };
-    return colors[taste] || 'text-coffee-600';
+    return colors[taste] || 'text-coffee-600 bg-coffee-100';
   };
 
   const getTasteLabel = (taste) => {
@@ -140,16 +141,12 @@ const BeanProfile = () => {
 
   if (loading) {
     return (
-      <div className="p-4">
+      <div className="p-6">
         <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-coffee-200 rounded w-3/4"></div>
-          <div className="h-4 bg-coffee-200 rounded w-1/2"></div>
-          <div className="card">
-            <div className="space-y-3">
-              <div className="h-4 bg-coffee-200 rounded"></div>
-              <div className="h-4 bg-coffee-200 rounded w-5/6"></div>
-            </div>
-          </div>
+          <div className="h-8 bg-cream-400 rounded w-3/4"></div>
+          <div className="h-4 bg-cream-400 rounded w-1/2"></div>
+          <div className="h-40 bg-cream-300 rounded-2xl mt-6"></div>
+          <div className="h-24 bg-cream-300 rounded-2xl"></div>
         </div>
       </div>
     );
@@ -157,164 +154,125 @@ const BeanProfile = () => {
 
   if (!bean) {
     return (
-      <div className="p-4">
-        <div className="card text-center py-8">
-          <p className="text-coffee-600">Bean not found</p>
-          <button
-            onClick={() => navigate('/beans')}
-            className="btn-primary mt-4"
-          >
-            Back to Beans
+      <div className="p-6">
+        <div className="card text-center items-center flex flex-col py-12">
+          <div className="text-6xl mb-4">🤔</div>
+          <h2 className="text-xl font-bold text-coffee-900 mb-2">Bean Not Found</h2>
+          <p className="text-coffee-600 mb-6 max-w-xs">We couldn't find that coffee bean. It may have been removed.</p>
+          <button onClick={() => navigate('/beans')} className="btn-primary w-full max-w-xs">
+            Back to My Beans
           </button>
         </div>
       </div>
     );
   }
 
-  const lastBrewParams = getLastBrewParams();
 
-  return (
-    <div className="p-4 pb-20">
-      <header className="mb-6">
+    return (
+    <div className="pb-20">
+      <header className="p-6 bg-header-gradient relative">
         <button
           onClick={() => navigate('/beans')}
-          className="text-coffee-600 hover:text-coffee-700 mb-3 flex items-center"
+          className="absolute top-6 left-6 text-coffee-700 hover:text-coffee-900 transition-colors"
         >
-          ← Back to Beans
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
         </button>
-        <h1 className="text-2xl font-bold text-coffee-900 mb-2">
-          {bean.name}
-        </h1>
-        <div className="text-coffee-600 space-y-1">
-          {bean.origin && <p>{bean.origin}</p>}
-          {bean.roastLevel && <p className="capitalize">{bean.roastLevel} roast</p>}
-          <p className="text-sm">{brews.length} brew{brews.length !== 1 ? 's' : ''} logged</p>
+        <div className="text-center pt-8">
+          <h1 className="text-3xl font-bold text-coffee-900 mb-2">
+            {bean.name}
+          </h1>
+          <div className="text-coffee-600 space-y-1">
+            {bean.origin && <p>{bean.origin}</p>}
+            {bean.roastLevel && <p className="capitalize">{bean.roastLevel} roast</p>}
+            <p className="text-sm text-coffee-700">{brews.length} brew{brews.length !== 1 ? 's' : ''} logged</p>
+          </div>
         </div>
       </header>
 
-      {bean.notes && (
-        <div className="card mb-6">
-          <h3 className="font-medium text-coffee-900 mb-2">Notes</h3>
-          <p className="text-coffee-700 text-sm">{bean.notes}</p>
-        </div>
-      )}
-
-      <div className="mb-6">
-        <NextBrewCard 
-          bean={bean}
-          suggestion={suggestion} 
-          loading={suggestionLoading}
-          onRefresh={() => loadBeanSuggestion(bean, brews, selectedMethod)}
-          isOffline={isOffline}
-          selectedMethod={selectedMethod}
-          onMethodChange={handleMethodChange}
-        />
-      </div>
-
-      {lastBrewParams && (
-        <div className="card mb-6">
-          <h3 className="font-medium text-coffee-900 mb-4">Most Recent Brew</h3>
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            <div>
-              <div className="text-lg font-semibold text-coffee-700">
-                {lastBrewParams.grindSize}
-              </div>
-              <div className="text-xs text-coffee-600">Grind Size</div>
-            </div>
-            <div>
-              <div className="text-lg font-semibold text-coffee-700">
-                {lastBrewParams.ratio}
-              </div>
-              <div className="text-xs text-coffee-600">Ratio</div>
-            </div>
-            <div>
-              <div className="text-lg font-semibold text-coffee-700">
-                {lastBrewParams.brewTime}
-              </div>
-              <div className="text-xs text-coffee-600">Brew Time</div>
-            </div>
-            <div>
-              <div className="flex flex-wrap gap-1">
-                {asTasteArray(lastBrewParams.taste).map((t) => (
-                  <span key={t} className={`px-2 py-0.5 rounded-full bg-coffee-100 ${getTasteColor(t)} text-xs font-medium`}>
-                    {getTasteLabel(t)}
-                  </span>
-                ))}
-              </div>
-              <div className="text-xs text-coffee-600">Taste</div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="mb-6">
-        <button
-          onClick={() => navigate(`/brew/${bean.id}`)}
-          className="w-full btn-primary"
-        >
-          Log New Brew with This Bean
-        </button>
-      </div>
-
-      <div className="card">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="font-medium text-coffee-900">Brew History</h3>
-          <span className="text-sm text-coffee-600">{brews.length} total</span>
-        </div>
-
-        {brews.length === 0 ? (
-          <div className="text-center py-8">
-            <div className="text-4xl mb-3">📊</div>
-            <p className="text-coffee-600 mb-4">No brews logged yet</p>
-            <button
-              onClick={() => navigate(`/brew/${bean.id}`)}
-              className="btn-secondary"
-            >
-              Log Your First Brew
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-3 max-h-64 overflow-y-auto">
-            {brews.map((brew, index) => (
-              <div key={brew.id} className="border-l-2 border-coffee-200 pl-4 pb-3">
-                <div className="flex justify-between items-start mb-2">
-                  <div className="text-sm font-medium text-coffee-900">
-                    Brew #{brews.length - index}
-                  </div>
-                  <div className="text-xs text-coffee-500">
-                    {new Date(brew.createdAt).toLocaleDateString()}
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div>
-                    <span className="text-coffee-600">Grind:</span> {brew.grindSize}
-                  </div>
-                  <div>
-                    <span className="text-coffee-600">Time:</span> {brew.brewTime}s
-                  </div>
-                  <div>
-                    <span className="text-coffee-600">Coffee:</span> {brew.coffeeAmount}g
-                  </div>
-                  <div>
-                    <span className="text-coffee-600">Water:</span> {brew.waterAmount}ml
-                  </div>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {asTasteArray(brew.taste).map((t) => (
-                    <span key={t} className={`px-2 py-0.5 rounded-full bg-coffee-100 ${getTasteColor(t)} text-xs font-medium`}>
-                      {getTasteLabel(t)}
-                    </span>
-                  ))}
-                  {brew.coffeeType && (
-                    <span className="text-xs text-coffee-600 ml-2">
-                      • {brew.coffeeType}
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
+      <div className="p-6 space-y-6">
+        {bean.notes && (
+          <div className="card">
+            <h3 className="font-bold text-coffee-900 mb-2">Roaster's Notes</h3>
+            <p className="text-coffee-700">{bean.notes}</p>
           </div>
         )}
+
+        <div>
+          <NextBrewCard 
+            bean={bean}
+            suggestion={suggestion} 
+            loading={suggestionLoading}
+            onRefresh={() => loadBeanSuggestion(bean, brews, selectedMethod)}
+            isOffline={isOffline}
+            selectedMethod={selectedMethod}
+            onMethodChange={handleMethodChange}
+          />
+        </div>
+
+        <div>
+          <button
+            onClick={() => navigate(`/brew/new?beanId=${bean.id}`)}
+            className="w-full btn-primary"
+          >
+            + Log New Brew
+          </button>
+        </div>
+
+        <div className="card">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-xl font-bold text-coffee-900">Brew History</h3>
+            <span className="text-sm text-coffee-600">{brews.length} total</span>
+          </div>
+
+          {brews.length === 0 ? (
+            <div className="text-center py-10">
+              <div className="text-5xl mb-4">📝</div>
+              <h4 className="text-lg font-bold text-coffee-800 mb-2">No brews yet</h4>
+              <p className="text-coffee-600 mb-6">Log your first brew to see your history here.</p>
+            </div>
+          ) : (
+            <div className="space-y-4 max-h-96 overflow-y-auto -mr-3 pr-3">
+              {brews.map((brew, index) => (
+                <div key={brew.id} className="border-b border-coffee-100 pb-4 last:border-b-0">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="text-sm font-medium text-coffee-900">
+                      Brew #{brews.length - index}
+                    </div>
+                    <div className="text-xs text-coffee-500">
+                      {new Date(brew.createdAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <span className="text-coffee-600">Grind:</span> {brew.grindSize}
+                    </div>
+                    <div>
+                      <span className="text-coffee-600">Time:</span> {brew.brewTime}s
+                    </div>
+                    <div>
+                      <span className="text-coffee-600">Coffee:</span> {brew.coffeeAmount}g
+                    </div>
+                    <div>
+                      <span className="text-coffee-600">Water:</span> {brew.waterAmount}ml
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2 items-center">
+                    {asTasteArray(brew.taste).map((t) => (
+                      <span key={t} className={`px-2 py-1 rounded-full ${getTasteColor(t)} text-xs font-semibold`}>
+                        {getTasteLabel(t)}
+                      </span>
+                    ))}
+                    {brew.coffeeType && (
+                      <span className="text-xs text-coffee-600 ml-2">
+                        • {migrateBrewMethod(brew.coffeeType)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

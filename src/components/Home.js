@@ -1,184 +1,177 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getBeans, getRecentBrews, migrateBrewData } from '../utils/storage';
-import { getSuggestion, migrateBrewMethod } from '../services/aiSuggestions';
+import {
+  getBeans,
+  getBrewsForBean,
+  hasAnyBrew,
+  getMostRecentBean,
+  setLastIntent,
+  setOnboardingStatus,
+} from '../utils/storage';
+import { getSuggestion } from '../services/aiSuggestions';
 import NextBrewCard from './NextBrewCard';
 import AddBeanModal from './AddBeanModal';
 
+// --- State-specific Components ---
+
+const EmptyState = ({ onAddBean, onRestartOnboarding }) => (
+  <div className="card text-center items-center flex flex-col py-12">
+    <div className="text-6xl mb-4">☕️</div>
+    <h2 className="text-xl font-bold text-coffee-900 mb-2">Your coffee journey starts here.</h2>
+    <p className="text-coffee-600 mb-6 max-w-xs">Add your first bean to begin logging brews and discovering AI-powered suggestions.</p>
+    <button onClick={onAddBean} className="btn-primary w-full max-w-xs">
+      Add Your First Bean
+    </button>
+    <button onClick={onRestartOnboarding} className="mt-4 text-sm text-coffee-500 hover:text-coffee-700 transition-colors">
+      Restart onboarding
+    </button>
+  </div>
+);
+
+const PlaceholderState = ({ bean, onLogBrew }) => (
+  <div className="card text-center items-center flex flex-col py-10">
+    <div className="text-5xl mb-4">📝</div>
+    <h2 className="text-xl font-bold text-coffee-900 mb-2">Log your first brew</h2>
+    <p className="text-coffee-600 mb-6 max-w-xs">
+      You've added <span className="font-semibold text-coffee-800">{bean.name}</span>. Now, let's log a brew to get tailored suggestions.
+    </p>
+    <button onClick={onLogBrew} className="btn-primary w-full max-w-xs">
+      Log First Brew
+    </button>
+  </div>
+);
+
+// --- Main Home Component ---
+
 const Home = () => {
   const navigate = useNavigate();
+  const [homeState, setHomeState] = useState('loading'); // loading, empty, placeholder, normal
   const [suggestion, setSuggestion] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [showAddBean, setShowAddBean] = useState(false);
-  const [recentBeans, setRecentBeans] = useState([]);
+  const [suggestionBean, setSuggestionBean] = useState(null);
+  const [loadingSuggestion, setLoadingSuggestion] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState('pourover');
-  const [suggestionBean, setSuggestionBean] = useState(null);
+  const [showAddBean, setShowAddBean] = useState(false);
 
-  useEffect(() => {
-    loadSuggestion();
-    loadRecentBeans();
-  }, []);
-
-  const loadSuggestion = async (method) => {
+  const loadSuggestion = useCallback(async (method) => {
+    const currentMethod = method || selectedMethod;
     try {
-      setLoading(true);
+      setLoadingSuggestion(true);
       setIsOffline(false);
       
-      // Migrate legacy data first
-      const migratedBrews = migrateBrewData();
-      
-      // Get recent brews from the most active bean
-      const beans = getBeans();
-      
-      if (beans.length === 0 || migratedBrews.length === 0) {
-        setSuggestionBean(null);
-        // No data yet, show default suggestion
-        const defaultSuggestion = await getSuggestion([], 'pourover');
-        setSuggestion(defaultSuggestion);
-        return;
-      }
-      
-      // Find the most recently used bean and method
-      const mostRecentBrew = migratedBrews[0];
-      const currentBean = beans.find(b => b.id === mostRecentBrew.beanId);
-      setSuggestionBean(currentBean);
-      const currentMethod = method || mostRecentBrew.method || migrateBrewMethod(mostRecentBrew.brewMethod || mostRecentBrew.coffeeType);
-      
-      if (method) {
-        setSelectedMethod(method);
-      }
+      const mostRecentBean = getMostRecentBean();
+      if (!mostRecentBean) return;
 
-      const beanBrews = migratedBrews
-        .filter(b => b.beanId === mostRecentBrew.beanId && 
-                    (b.method || migrateBrewMethod(b.brewMethod || b.coffeeType)) === currentMethod)
-        .slice(0, 5);
+      setSuggestionBean(mostRecentBean);
       
-      const newSuggestion = await getSuggestion(beanBrews, currentMethod);
+      const brews = getBrewsForBean(mostRecentBean.id);
+      const newSuggestion = await getSuggestion(brews, currentMethod, mostRecentBean.name);
       setSuggestion(newSuggestion);
       
     } catch (error) {
       console.error('Error loading suggestion:', error);
       setIsOffline(true);
-      // Try fallback
-      try {
-        const fallbackSuggestion = await getSuggestion([], 'pourover');
-        setSuggestion(fallbackSuggestion);
-      } catch (fallbackError) {
-        console.error('Fallback also failed:', fallbackError);
-      }
+      setSuggestion(await getSuggestion([], currentMethod)); // Fallback
     } finally {
-      setLoading(false);
+      setLoadingSuggestion(false);
+    }
+  }, [selectedMethod]);
+
+  const resolveHomeState = useCallback(async () => {
+    setHomeState('loading');
+    const beans = getBeans();
+    const hasBrews = hasAnyBrew();
+
+    if (beans.length === 0) {
+      setHomeState('empty');
+    } else if (!hasBrews) {
+      const mostRecentBean = getMostRecentBean();
+      setSuggestionBean(mostRecentBean);
+      setHomeState('placeholder');
+    } else {
+      setHomeState('normal');
+      await loadSuggestion(selectedMethod);
+    }
+  }, [loadSuggestion, selectedMethod]);
+
+  useEffect(() => {
+    resolveHomeState();
+  }, [resolveHomeState]);
+
+  const handleMethodChange = (newMethod) => {
+    setSelectedMethod(newMethod);
+    if (homeState === 'normal') {
+      loadSuggestion(newMethod);
     }
   };
 
-  const loadRecentBeans = () => {
-    const beans = getBeans();
-    const recentBrews = getRecentBrews();
-    
-    // Get beans with recent activity
-    const beansWithActivity = beans.map(bean => {
-      const beanBrews = recentBrews.filter(brew => brew.beanId === bean.id);
-      return {
-        ...bean,
-        lastBrew: beanBrews[0]?.createdAt || bean.createdAt,
-        brewCount: beanBrews.length
-      };
-    }).sort((a, b) => new Date(b.lastBrew) - new Date(a.lastBrew));
-    
-    setRecentBeans(beansWithActivity.slice(0, 3));
+  const handleAddBeanClick = () => {
+    setLastIntent('add_bean');
+    setShowAddBean(true);
   };
 
   const handleBeanAdded = () => {
     setShowAddBean(false);
-    loadRecentBeans();
+    resolveHomeState();
   };
 
-  const handleMethodChange = (newMethod) => {
-    setSelectedMethod(newMethod);
-    loadSuggestion(newMethod);
+  const handleLogFirstBrewClick = () => {
+    if (!suggestionBean) return;
+    setLastIntent('log_brew');
+    navigate(`/brew/new?beanId=${suggestionBean.id}&method=pourover`);
+  };
+
+  const handleRestartOnboarding = () => {
+    setOnboardingStatus('not-started');
+    navigate('/onboarding');
+  };
+
+  const renderContent = () => {
+    switch (homeState) {
+      case 'loading':
+        return <div className="text-center p-12 text-coffee-500">Loading your dashboard...</div>;
+      case 'empty':
+        return <EmptyState onAddBean={handleAddBeanClick} onRestartOnboarding={handleRestartOnboarding} />;
+      case 'placeholder':
+        return (
+          <>
+            <PlaceholderState bean={suggestionBean} onLogBrew={handleLogFirstBrewClick} />
+            <div className="text-center mt-4">
+              <button onClick={() => navigate('/beans')} className="text-sm text-coffee-600 hover:text-coffee-700">
+                View all beans
+              </button>
+            </div>
+          </>
+        );
+      case 'normal':
+        return (
+          <NextBrewCard
+            bean={suggestionBean}
+            suggestion={suggestion}
+            loading={loadingSuggestion}
+            onRefresh={() => loadSuggestion(selectedMethod)}
+            isOffline={isOffline}
+            selectedMethod={selectedMethod}
+            onMethodChange={handleMethodChange}
+          />
+        );
+      default:
+        return null;
+    }
   };
 
   return (
-    <div className="p-4 pb-20">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-coffee-900 mb-2">
-          Your Coffee Dashboard
-        </h1>
-        <p className="text-coffee-600">
-          Track your brewing journey
-        </p>
+    <div className="pb-20">
+      <header className="p-6 bg-header-gradient">
+        <div>
+          <h1 className="text-3xl font-bold text-coffee-900">Dashboard</h1>
+          <p className="text-coffee-700">Your daily brew, perfected.</p>
+        </div>
+        {/* Optional: Add a '...' menu here for 'Restart Onboarding' later */}
       </header>
 
-      <NextBrewCard 
-        bean={suggestionBean}
-        suggestion={suggestion} 
-        loading={loading}
-        onRefresh={() => loadSuggestion(selectedMethod)}
-        isOffline={isOffline}
-        selectedMethod={selectedMethod}
-        onMethodChange={handleMethodChange}
-      />
-
-      <div className="mt-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold text-coffee-900">Recent Beans</h2>
-          <button
-            onClick={() => navigate('/beans')}
-            className="text-coffee-600 text-sm font-medium hover:text-coffee-700"
-          >
-            View All
-          </button>
-        </div>
-
-        {recentBeans.length === 0 ? (
-          <div className="card text-center py-8">
-            <div className="text-4xl mb-3">☕</div>
-            <h3 className="font-medium text-coffee-900 mb-2">No beans yet</h3>
-            <p className="text-coffee-600 text-sm mb-4">
-              Add your first coffee bean to start logging brews
-            </p>
-            <button
-              onClick={() => setShowAddBean(true)}
-              className="btn-primary"
-            >
-              + Add Bean
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className="space-y-3">
-              {recentBeans.map(bean => (
-                <div
-                  key={bean.id}
-                  onClick={() => navigate(`/bean/${bean.id}`)}
-                  className="card hover:shadow-md transition-shadow cursor-pointer"
-                >
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1">
-                      <h3 className="font-medium text-coffee-900">{bean.name}</h3>
-                      <p className="text-sm text-coffee-600 mt-1">
-                        {bean.origin && `${bean.origin} • `}
-                        {bean.roastLevel && `${bean.roastLevel} roast`}
-                      </p>
-                      <p className="text-xs text-coffee-500 mt-2">
-                        {bean.brewCount} brews • Last: {new Date(bean.lastBrew).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <div className="text-2xl">☕</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            
-            <button
-              onClick={() => setShowAddBean(true)}
-              className="w-full mt-4 btn-secondary"
-            >
-              + Add New Bean
-            </button>
-          </>
-        )}
+      <div className="p-6">
+        {renderContent()}
       </div>
 
       {showAddBean && (

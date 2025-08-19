@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { getBeans, saveBrew, getBrewsForBean, saveBeanSuggestion } from '../utils/storage';
 import { BREW_METHODS, TASTE_OPTIONS, getSuggestion, migrateBrewMethod, calculateRatio } from '../services/aiSuggestions';
 import MethodSelector from './MethodSelector';
@@ -8,6 +8,8 @@ import MethodFields from './MethodFields';
 const BrewForm = () => {
   const { beanId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isOnboarding = new URLSearchParams(location.search).get('onboarding') === 'true';
   const [bean, setBean] = useState(null);
   const [suggestion, setSuggestion] = useState(null);
   const [formData, setFormData] = useState({
@@ -45,7 +47,7 @@ const BrewForm = () => {
       const previousBrews = getBrewsForBean(beanId)
         .filter(brew => brew.method === formData.method)
         .slice(0, 3);
-      const newSuggestion = await getSuggestion(previousBrews, formData.method);
+      const newSuggestion = await getSuggestion(previousBrews, formData.method, currentBean.name);
       setSuggestion(newSuggestion);
       
       // Apply suggestion to form if available
@@ -106,7 +108,7 @@ const BrewForm = () => {
         const updatedBrews = getBrewsForBean(beanId)
           .filter(brew => (brew.method || migrateBrewMethod(brew.brewMethod || brew.coffeeType)) === formData.method);
         const recentBrews = updatedBrews.slice(0, 5);
-        const newSuggestion = await getSuggestion(recentBrews, formData.method);
+        const newSuggestion = await getSuggestion(recentBrews, formData.method, bean.name);
         await saveBeanSuggestion(beanId, newSuggestion);
       } catch (suggestionError) {
         console.warn('Failed to generate new suggestion after brew save:', suggestionError);
@@ -152,7 +154,7 @@ const BrewForm = () => {
       const previousBrews = getBrewsForBean(beanId)
         .filter(brew => (brew.method || migrateBrewMethod(brew.brewMethod || brew.coffeeType)) === newMethod)
         .slice(0, 3);
-      const newSuggestion = await getSuggestion(previousBrews, newMethod);
+      const newSuggestion = await getSuggestion(previousBrews, newMethod, bean.name);
       setSuggestion(newSuggestion);
       
       if (newSuggestion) {
@@ -196,39 +198,43 @@ const BrewForm = () => {
     );
   }
 
-  return (
-    <div className="p-4 pb-20">
-      <header className="mb-6">
+    return (
+    <div className="pb-20">
+      <header className="p-6 bg-header-gradient relative">
         <button
           onClick={() => navigate(`/bean/${beanId}`)}
-          className="text-coffee-600 hover:text-coffee-700 mb-3 flex items-center"
+          className="absolute top-6 left-6 text-coffee-700 hover:text-coffee-900 transition-colors"
         >
-          ← Back to {bean.name}
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
         </button>
-        <h1 className="text-2xl font-bold text-coffee-900 mb-2">
-          Log New Brew
-        </h1>
-        <p className="text-coffee-600">
-          Record your brewing parameters and taste feedback
-        </p>
+        <div className="text-center pt-8">
+          <h1 className="text-3xl font-bold text-coffee-900 mb-2">
+            Log New Brew
+          </h1>
+          <p className="text-coffee-600">
+            For <span className="font-semibold">{bean.name}</span>
+          </p>
+        </div>
       </header>
 
-      {suggestion && (
-        <div className="card mb-6 bg-coffee-50 border-coffee-300">
-          <div className="flex items-center mb-3">
-            <span className="text-lg mr-2">💡</span>
-            <h3 className="font-medium text-coffee-900">AI Suggestion</h3>
+      <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        {suggestion && (
+          <div className="card bg-cream-200 border-cream-300">
+            <div className="flex items-start mb-3">
+              <span className="text-2xl mr-3 -mt-1">💡</span>
+              <div>
+                <h3 className="font-bold text-coffee-900">AI Suggestion</h3>
+                <p className="text-sm text-coffee-700">{suggestion.explanation}</p>
+              </div>
+            </div>
+            <div className="text-xs text-coffee-600 pl-8">
+              Try: {suggestion.grindSize} grind, {suggestion.ratio} ratio, {suggestion.brewTime}{BREW_METHODS[formData.method]?.timeUnit === 'minutes' ? 'min' : 's'}
+              {suggestion.waterTempC && `, ${suggestion.waterTempC}°C`}
+              {suggestion.pressureBar && `, ${suggestion.pressureBar} bar`}
+            </div>
           </div>
-          <p className="text-sm text-coffee-700 mb-3">{suggestion.explanation}</p>
-          <div className="text-xs text-coffee-600">
-            Recommended: {suggestion.grindSize} grind • {suggestion.ratio} ratio • {suggestion.brewTime}{BREW_METHODS[formData.method]?.timeUnit === 'minutes' ? 'min' : 's'}
-            {suggestion.waterTempC && ` • ${suggestion.waterTempC}°C`}
-            {suggestion.pressureBar && ` • ${suggestion.pressureBar} bar`}
-          </div>
-        </div>
-      )}
+        )}
 
-      <form onSubmit={handleSubmit} className="space-y-6">
         <MethodSelector 
           selectedMethod={formData.method}
           onMethodChange={handleMethodChange}
@@ -241,11 +247,10 @@ const BrewForm = () => {
           errors={fieldErrors}
         />
 
-        {/* Show calculated ratio */}
         {formData.method && (
-          <div className="card bg-coffee-25">
-            <h3 className="font-medium text-coffee-900 mb-2">Calculated Ratio</h3>
-            <div className="text-lg font-semibold text-coffee-700">
+          <div className="card">
+            <h3 className="font-bold text-coffee-900 mb-2">Calculated Ratio</h3>
+            <div className="text-2xl font-semibold text-coffee-800">
               {calculateRatio(formData.method, formData).value}
             </div>
             <div className="text-xs text-coffee-600">
@@ -255,8 +260,8 @@ const BrewForm = () => {
         )}
 
         <div className="card">
-          <h3 className="font-medium text-coffee-900 mb-4">Taste Feedback *</h3>
-          <p className="text-xs text-coffee-600 mb-3">Select all that apply</p>
+          <h3 className="font-bold text-coffee-900 mb-2">Taste Feedback *</h3>
+          <p className="text-sm text-coffee-600 mb-4">Select all that apply. This is crucial for AI suggestions.</p>
           <div className="grid grid-cols-2 gap-3">
             {TASTE_OPTIONS.map(option => (
               <button
@@ -270,10 +275,10 @@ const BrewForm = () => {
                     : [...currentTastes, option.value];
                   handleChange('taste', newTastes);
                 }}
-                className={`p-3 rounded-lg border transition-colors text-sm font-medium ${
+                className={`p-4 rounded-xl border-2 transition-all text-sm font-semibold text-center ${
                   formData.taste.includes(option.value)
-                    ? 'bg-coffee-700 text-white border-coffee-700'
-                    : 'bg-white text-coffee-700 border-coffee-300 hover:border-coffee-500'
+                    ? 'bg-coffee-800 text-white border-coffee-800 shadow-lg'
+                    : 'bg-white text-coffee-800 border-cream-400 hover:border-coffee-400 hover:shadow-md'
                 }`}
               >
                 {option.label}
@@ -283,17 +288,17 @@ const BrewForm = () => {
         </div>
 
         <div className="card">
-          <h3 className="font-medium text-coffee-900 mb-4">Notes (Optional)</h3>
+          <h3 className="font-bold text-coffee-900 mb-2">Notes (Optional)</h3>
           <textarea
             value={formData.notes}
             onChange={(e) => handleChange('notes', e.target.value)}
-            placeholder="Additional notes about this brew..."
-            rows={3}
+            placeholder="E.g., pre-infusion time, specific water used, etc."
+            rows={4}
             className="input-field resize-none"
           />
         </div>
 
-        <div className="flex gap-3 pt-4">
+        <div className="flex gap-4 pt-4">
           <button
             type="button"
             onClick={() => navigate(`/bean/${beanId}`)}
@@ -304,11 +309,22 @@ const BrewForm = () => {
           <button
             type="submit"
             disabled={saving || !formData.taste || formData.taste.length === 0}
-            className="flex-1 btn-primary disabled:opacity-50"
+            className="flex-1 btn-primary"
           >
             {saving ? 'Saving...' : 'Save Brew'}
           </button>
         </div>
+
+        {isOnboarding && (
+          <div className="text-center mt-4">
+            <button 
+              onClick={() => navigate('/')} 
+              className="text-sm text-coffee-600 hover:text-coffee-800"
+            >
+              I'll do this later
+            </button>
+          </div>
+        )}
       </form>
     </div>
   );

@@ -141,7 +141,7 @@ const getFallbackSuggestion = (history, method) => {
 };
 
 // Method-aware OpenAI API call
-const getAISuggestion = async (history, method) => {
+const getAISuggestion = async (history, method, beanName = '') => {
   if (!OPENAI_API_KEY) {
     throw new Error('OpenAI API key not configured');
   }
@@ -149,23 +149,33 @@ const getAISuggestion = async (history, method) => {
   const methodConfig = BREW_METHODS[method];
   const timeUnit = methodConfig?.timeUnit || 'seconds';
   
-  let prompt = `Based on the user's previous ${methodConfig?.name || method} brews: ${JSON.stringify(history)}, recommend parameters for their next ${methodConfig?.name || method} brew.
+  let prompt;
+  if (history.length === 0) {
+    prompt = `The user wants a good starting recipe for a coffee bean named "${beanName || 'unknown'}".
 
+Bean Name: ${beanName || 'N/A'}
+Brew Method: ${methodConfig?.name || method}
+
+Please provide a solid starting point recipe. If the bean name is specific, tailor the recipe to that bean's typical profile. If not, provide a general-purpose recipe for this method.
+
+Provide a brief explanation (≤2 sentences) for why this is a good starting point.
+
+Return strict JSON with keys: method, grindSize, ratio, brewTime, waterTempC${method === 'espresso' ? ', pressureBar' : ''}, explanation.`;
+  } else {
+    prompt = `Based on the user's previous ${methodConfig?.name || method} brews for a coffee bean named "${beanName || 'unknown'}", recommend parameters for their next brew.
+
+Bean Name: ${beanName || 'N/A'}
 Method: ${method}
 Recent brews: ${JSON.stringify(history)}
 
 Note: Taste feedback may be an array of multiple values (e.g., ["too_bitter", "weak"]) or a single string for backward compatibility.
 
-Please recommend:
-- Grind size (number or short descriptor like "fine", "medium", "coarse")
-- Ratio (expressed as appropriate for ${method})
-- Target time (in ${timeUnit})
-- Water temperature (°C)
-${method === 'espresso' ? '- Pressure (bar, if applicable)' : ''}
+Please recommend adjustments to parameters.
 
 Provide a brief explanation (≤2 sentences) for these adjustments.
 
 Return strict JSON with keys: method, grindSize, ratio, brewTime, waterTempC${method === 'espresso' ? ', pressureBar' : ''}, explanation.`;
+  }
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -215,11 +225,11 @@ Return strict JSON with keys: method, grindSize, ratio, brewTime, waterTempC${me
 };
 
 // Main suggestion function - now method-aware
-export const getSuggestion = async (history, method = 'pourover') => {
+export const getSuggestion = async (history, method = 'pourover', beanName = '') => {
   try {
     // Try AI first if API key is available
     if (OPENAI_API_KEY) {
-      return await getAISuggestion(history, method);
+      return await getAISuggestion(history, method, beanName);
     }
   } catch (error) {
     console.warn('AI suggestion failed, using fallback:', error.message);
