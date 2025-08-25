@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { getBeans, saveBrew, getBrewsForBean, saveBeanSuggestion } from '../utils/storage';
+import { getBeans, saveBrew, getBrewsForBean, saveBeanSuggestion, enqueuePendingBrew } from '../utils/storage';
 import { BREW_METHODS, TASTE_OPTIONS, getSuggestion, migrateBrewMethod, calculateRatio } from '../services/aiSuggestions';
+import { useOnlineStatus } from '../utils/network';
 import MethodSelector from './MethodSelector';
 import MethodFields from './MethodFields';
 
@@ -9,11 +10,15 @@ const BrewForm = () => {
   const { beanId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const isOnboarding = new URLSearchParams(location.search).get('onboarding') === 'true';
+  const searchParams = new URLSearchParams(location.search);
+  const isOnboarding = searchParams.get('onboarding') === 'true';
+  const queryBeanId = searchParams.get('beanId') || beanId;
+  const queryMethod = searchParams.get('method') || 'pourover';
+  const isOnline = useOnlineStatus();
   const [bean, setBean] = useState(null);
   const [suggestion, setSuggestion] = useState(null);
   const [formData, setFormData] = useState({
-    method: 'pourover',
+    method: queryMethod,
     taste: [],
     notes: '',
     // Method-specific fields will be added dynamically
@@ -29,12 +34,12 @@ const BrewForm = () => {
 
   useEffect(() => {
     loadBeanAndSuggestion();
-  }, [beanId]);
+  }, [queryBeanId]);
 
   const loadBeanAndSuggestion = async () => {
     try {
       const allBeans = getBeans();
-      const currentBean = allBeans.find(b => b.id === beanId);
+      const currentBean = allBeans.find(b => b.id === queryBeanId);
       
       if (!currentBean) {
         navigate('/beans');
@@ -44,7 +49,7 @@ const BrewForm = () => {
       setBean(currentBean);
       
       // Load AI suggestion based on previous brews for the current method
-      const previousBrews = getBrewsForBean(beanId)
+      const previousBrews = getBrewsForBean(queryBeanId)
         .filter(brew => brew.method === formData.method)
         .slice(0, 3);
       const newSuggestion = await getSuggestion(previousBrews, formData.method, currentBean.name);
@@ -96,26 +101,32 @@ const BrewForm = () => {
       setSaving(true);
       const brewData = {
         ...formData,
-        beanId: beanId,
+        beanId: queryBeanId,
         brewMethod: formData.method // For backward compatibility
       };
       
-      // Save the brew
-      await saveBrew(brewData);
-      
-      // Generate and save new AI suggestion based on updated brew history
-      try {
-        const updatedBrews = getBrewsForBean(beanId)
-          .filter(brew => (brew.method || migrateBrewMethod(brew.brewMethod || brew.coffeeType)) === formData.method);
-        const recentBrews = updatedBrews.slice(0, 5);
-        const newSuggestion = await getSuggestion(recentBrews, formData.method, bean.name);
-        await saveBeanSuggestion(beanId, newSuggestion);
-      } catch (suggestionError) {
-        console.warn('Failed to generate new suggestion after brew save:', suggestionError);
-        // Don't block navigation if suggestion fails
+      if (isOnline) {
+        // Online mode: normal save
+        await saveBrew(brewData);
+        
+        // Generate and save new AI suggestion based on updated brew history
+        try {
+          const updatedBrews = getBrewsForBean(queryBeanId)
+            .filter(brew => (brew.method || migrateBrewMethod(brew.brewMethod || brew.coffeeType)) === formData.method);
+          const recentBrews = updatedBrews.slice(0, 5);
+          const newSuggestion = await getSuggestion(recentBrews, formData.method, bean.name);
+          await saveBeanSuggestion(queryBeanId, newSuggestion, formData.method);
+        } catch (suggestionError) {
+          console.warn('Failed to generate new suggestion after brew save:', suggestionError);
+          // Don't block navigation if suggestion fails
+        }
+      } else {
+        // Offline mode: save to pending queue
+        await enqueuePendingBrew(brewData);
+        console.info('Brew saved to offline queue');
       }
       
-      navigate(`/bean/${beanId}`);
+      navigate(`/bean/${queryBeanId}`);
     } catch (error) {
       console.error('Error saving brew:', error);
       alert('Error saving brew. Please try again.');
@@ -202,7 +213,7 @@ const BrewForm = () => {
     <div className="pb-20">
       <header className="p-6 bg-header-gradient relative">
         <button
-          onClick={() => navigate(`/bean/${beanId}`)}
+          onClick={() => navigate(`/bean/${queryBeanId}`)}
           className="absolute top-6 left-6 text-coffee-700 hover:text-coffee-900 transition-colors"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
@@ -218,6 +229,40 @@ const BrewForm = () => {
       </header>
 
       <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        {!isOnline && (
+          <div className="bg-amber-50 border-l-4 border-amber-400 p-3 rounded-r-md mb-4">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-amber-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <p className="text-sm text-amber-700">
+                  Offline mode: entries will be saved locally and synced when you're back online.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {suggestion && !isOnline && (
+          <div className="bg-blue-50 border-l-4 border-blue-400 p-3 rounded-r-md mb-4">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <p className="text-sm text-blue-700">
+                  AI suggestions are disabled while offline. Using cached recommendations.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {suggestion && (
           <div className="card bg-cream-200 border-cream-300">
             <div className="flex items-start mb-3">
@@ -301,7 +346,7 @@ const BrewForm = () => {
         <div className="flex gap-4 pt-4">
           <button
             type="button"
-            onClick={() => navigate(`/bean/${beanId}`)}
+            onClick={() => navigate(`/bean/${queryBeanId}`)}
             className="flex-1 btn-secondary"
           >
             Cancel

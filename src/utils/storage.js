@@ -6,7 +6,8 @@ const STORAGE_KEYS = {
   ONBOARDING_STATUS: 'onboarding.status',
   UI_LAST_INTENT: 'ui.lastIntent',
   BEANS: 'coffee_beans',
-  BREWS: 'coffee_brews'
+  BREWS: 'coffee_brews',
+  PENDING_BREWS: 'pending_brews'
 };
 
 // Bean profile operations
@@ -209,4 +210,56 @@ export const getRecentBrews = (limit = 5) => {
   return allBrews
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, limit);
+};
+
+// Pending brews queue for offline support
+export const getPendingBrews = () => {
+  try {
+    const pending = localStorage.getItem(STORAGE_KEYS.PENDING_BREWS);
+    return pending ? JSON.parse(pending) : [];
+  } catch (error) {
+    console.error('Error loading pending brews:', error);
+    return [];
+  }
+};
+
+export const enqueuePendingBrew = (brew) => {
+  try {
+    const pending = getPendingBrews();
+    brew.id = Date.now().toString();
+    brew.createdAt = new Date().toISOString();
+    brew.isPending = true;
+    pending.push(brew);
+    localStorage.setItem(STORAGE_KEYS.PENDING_BREWS, JSON.stringify(pending));
+    return brew;
+  } catch (error) {
+    console.error('Error enqueuing pending brew:', error);
+    throw error;
+  }
+};
+
+export const flushPendingBrews = () => {
+  try {
+    const pending = getPendingBrews();
+    if (pending.length === 0) return [];
+
+    // Move pending brews to main storage
+    const mainBrews = getBrews();
+    const flushedBrews = pending.map(brew => {
+      const { isPending, ...cleanBrew } = brew;
+      return cleanBrew;
+    });
+    
+    mainBrews.push(...flushedBrews);
+    localStorage.setItem(STORAGE_KEYS.BREWS, JSON.stringify(mainBrews));
+    
+    // Clear pending queue
+    localStorage.setItem(STORAGE_KEYS.PENDING_BREWS, JSON.stringify([]));
+    
+    console.info(`Synced ${flushedBrews.length} pending brews`);
+    return flushedBrews;
+  } catch (error) {
+    console.error('Error flushing pending brews:', error);
+    return [];
+  }
 };

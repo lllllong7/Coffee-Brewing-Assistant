@@ -226,6 +226,12 @@ Return strict JSON with keys: method, grindSize, ratio, brewTime, waterTempC${me
 
 // Main suggestion function - now method-aware
 export const getSuggestion = async (history, method = 'pourover', beanName = '') => {
+  // Short-circuit when offline
+  if (!navigator.onLine) {
+    console.info('Offline: using fallback suggestions only');
+    return getFallbackSuggestion(history, method);
+  }
+
   try {
     // Try AI first if API key is available
     if (OPENAI_API_KEY) {
