@@ -58,6 +58,17 @@ export const deleteBean = (beanId) => {
   }
 };
 
+export const deleteBrew = (brewId) => {
+  try {
+    const brews = getBrews();
+    const filteredBrews = brews.filter(b => b.id !== brewId);
+    localStorage.setItem(STORAGE_KEYS.BREWS, JSON.stringify(filteredBrews));
+  } catch (error) {
+    console.error('Error deleting brew:', error);
+    throw error;
+  }
+};
+
 // Brew log operations
 
 export const getBrews = () => {
