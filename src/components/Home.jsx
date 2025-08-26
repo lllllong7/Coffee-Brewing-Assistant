@@ -8,7 +8,7 @@ import {
   setLastIntent,
   setOnboardingStatus,
 } from '../utils/storage';
-import { getSuggestion } from '../services/aiSuggestions';
+import { getSuggestion, migrateBrewMethod } from '../services/aiSuggestions';
 import NextBrewCard from './NextBrewCard';
 import AddBeanModal from './AddBeanModal';
 
@@ -64,8 +64,12 @@ const Home = () => {
 
       setSuggestionBean(mostRecentBean);
       
-      const brews = getBrewsForBean(mostRecentBean.id);
-      const newSuggestion = await getSuggestion(brews, currentMethod, mostRecentBean.name);
+      const allBrews = getBrewsForBean(mostRecentBean.id);
+      const methodBrews = allBrews.filter(brew => 
+        (brew.method || migrateBrewMethod(brew.brewMethod || brew.coffeeType)) === currentMethod
+      );
+      const recentBrews = methodBrews.slice(0, 5);
+      const newSuggestion = await getSuggestion(recentBrews, currentMethod, mostRecentBean.name);
       setSuggestion(newSuggestion);
       
     } catch (error) {
